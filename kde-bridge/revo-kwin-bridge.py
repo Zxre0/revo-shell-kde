@@ -5,6 +5,7 @@ Owns org.revo.KWinBridge on the session bus:
   update(json)        called by kwin-bridge.js; state is written (coalesced) to
                       $XDG_RUNTIME_DIR/revo-kwin/windows.json for Quickshell to watch
   command(cmd)        shell command from a KWin shortcut → /tmp/macos_cmd (read by ShellController)
+  (also pins GTK's button layout and keeps the traffic-light CSS imported for GTK/Firefox)
   superKey()          Super tapped alone (kwinrc ModifierOnlyShortcuts) → opens Launchpad
   action(id, verb)    activate | close | minimize | unminimize | toggleMinimize |
                       maximize | unmaximize | fullscreen | unfullscreen
@@ -12,6 +13,8 @@ Owns org.revo.KWinBridge on the session bus:
 """
 import json
 import os
+import re
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -31,6 +34,12 @@ CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 # it on colour/decoration changes; our traffic-light CSS has to be imported from it
 GTK3_DECO_CSS = os.path.join(CONFIG, "gtk-3.0", "window_decorations.css")
 GTK3_IMPORT = "@import 'revo-titlebuttons.css';"
+# KDE derives GTK's button layout from kwinrc and drops the "keep below" slot that holds our
+# green light (XIB → close,minimize), so client-side decorations (Firefox, GTK apps) would
+# lose maximize. Pin the macOS order everywhere GTK and Firefox read it.
+GTK_LAYOUT = "close,minimize,maximize:"
+GTK_SETTINGS_INI = [os.path.join(CONFIG, v, "settings.ini") for v in ("gtk-3.0", "gtk-4.0")]
+XSETTINGSD_CONF = os.path.join(CONFIG, "xsettingsd", "xsettingsd.conf")
 
 ACTIONS = {
     "activate": "w.minimized = false; workspace.activeWindow = w;",
@@ -143,6 +152,38 @@ def ensure_gtk_traffic_lights(*_):
         f.write(GTK3_IMPORT + "\n" + css)
 
 
+def _rewrite(path, pattern, line):
+    try:
+        with open(path) as f:
+            text = f.read()
+    except FileNotFoundError:
+        return False
+    new = re.sub(pattern, line, text, flags=re.M)
+    if new == text:
+        return False
+    with open(path, "w") as f:
+        f.write(new)
+    return True
+
+
+def ensure_gtk_layout(*_):
+    for ini in GTK_SETTINGS_INI:
+        _rewrite(ini, r"^gtk-decoration-layout=.*$", "gtk-decoration-layout=" + GTK_LAYOUT)
+    if _rewrite(XSETTINGSD_CONF, r"^Gtk/DecorationLayout .*$", 'Gtk/DecorationLayout "%s"' % GTK_LAYOUT):
+        os.system("pkill -HUP -x xsettingsd")
+    wm = Gio.Settings.new("org.gnome.desktop.wm.preferences")
+    if wm.get_string("button-layout") != GTK_LAYOUT:
+        wm.set_string("button-layout", GTK_LAYOUT)
+        Gio.Settings.sync()
+
+
+def watch_file(path, callback):
+    monitor = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+    # let KDE finish writing before checking
+    monitor.connect("changed", lambda *a: GLib.timeout_add(300, lambda: callback() and False))
+    return monitor
+
+
 def main():
     os.makedirs(RUNTIME, exist_ok=True)
     DBusGMainLoop(set_as_default=True)
@@ -153,8 +194,14 @@ def main():
     name = dbus.service.BusName("org.revo.KWinBridge", bus, do_not_queue=True)  # noqa: F841
     bridge = Bridge(bus)
     ensure_gtk_traffic_lights()
-    monitor = Gio.File.new_for_path(GTK3_DECO_CSS).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
-    monitor.connect("changed", lambda *a: GLib.timeout_add(300, lambda: ensure_gtk_traffic_lights() and False))
+    ensure_gtk_layout()
+    monitors = [watch_file(GTK3_DECO_CSS, ensure_gtk_traffic_lights)]  # noqa: F841
+    monitors += [watch_file(p, ensure_gtk_layout) for p in GTK_SETTINGS_INI + [XSETTINGSD_CONF]]
+    wm = Gio.Settings.new("org.gnome.desktop.wm.preferences")
+    wm.connect("changed::button-layout", lambda *a: GLib.timeout_add(300, lambda: ensure_gtk_layout() and False))
+    # traffic lights for Firefox profiles created since the last login
+    subprocess.run([os.path.join(HERE, "..", "bin", "revo-firefox-theme"), "install"],
+                   stdout=subprocess.DEVNULL, check=False)
     # (re)load the KWin side so it pushes a full snapshot to us right away
     GLib.idle_add(lambda: bridge.resync() and False)
     GLib.MainLoop().run()

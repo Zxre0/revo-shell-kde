@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Traffic-light title bar buttons for Firefox and its forks (userChrome.css).
+#   revo-firefox-theme install   copy the stylesheet into every profile, import it, enable userChrome
+#   revo-firefox-theme remove    undo that
+# Covers native and flatpak installs of Firefox, LibreWolf and Waterfox. The stylesheet is
+# copied rather than linked so sandboxed (flatpak) browsers can read it.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+CSS="$HERE/aurorae/firefox/revo-titlebuttons.css"
+IMPORT='@import "revo-titlebuttons.css"; /* revo-shell-kde */'
+PREF='user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); // revo-shell-kde'
+
+roots=(
+    "${XDG_CONFIG_HOME:-$HOME/.config}/mozilla/firefox" "$HOME/.mozilla/firefox"
+    "$HOME/.var/app/org.mozilla.firefox/config/mozilla/firefox" "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox"
+    "$HOME/.librewolf" "$HOME/.var/app/io.gitlab.librewolf-community/.librewolf"
+    "$HOME/.waterfox" "$HOME/.var/app/net.waterfox.waterfox/.waterfox"
+)
+
+profiles() {
+    local root path
+    for root in "${roots[@]}"; do
+        [[ -f "$root/profiles.ini" ]] || continue
+        # Path= lines; relative unless they start with /
+        sed -n 's/^Path=//p' "$root/profiles.ini" | while IFS= read -r path; do
+            [[ "$path" == /* ]] || path="$root/$path"
+            [[ -d "$path" ]] && printf '%s\n' "$path"
+        done
+    done
+}
+
+install_profile() {
+    local p="$1" uc="$1/chrome/userChrome.css"
+    mkdir -p "$p/chrome"
+    cp "$CSS" "$p/chrome/revo-titlebuttons.css"
+    # @import has to come before any other rule
+    if ! grep -qF "$IMPORT" "$uc" 2>/dev/null; then
+        { echo "$IMPORT"; cat "$uc" 2>/dev/null || true; } >"$uc.revo-tmp" && mv "$uc.revo-tmp" "$uc"
+    fi
+    grep -qF "$PREF" "$p/user.js" 2>/dev/null || echo "$PREF" >>"$p/user.js"
+}
+
+remove_profile() {
+    local p="$1"
+    rm -f "$p/chrome/revo-titlebuttons.css"
+    [[ -f "$p/chrome/userChrome.css" ]] && sed -i '\|/\* revo-shell-kde \*/$|d' "$p/chrome/userChrome.css"
+    [[ -f "$p/user.js" ]] && sed -i '\|// revo-shell-kde$|d' "$p/user.js"
+    # drop what we created if nothing else is left in it
+    [[ -s "$p/chrome/userChrome.css" ]] || rm -f "$p/chrome/userChrome.css"
+    [[ -s "$p/user.js" ]] || rm -f "$p/user.js"
+    rmdir "$p/chrome" 2>/dev/null || true
+}
+
+case "${1:-}" in
+    install) profiles | while IFS= read -r p; do install_profile "$p"; echo "  firefox: $p"; done ;;
+    remove) profiles | while IFS= read -r p; do remove_profile "$p"; done ;;
+    *) echo "usage: $0 install|remove" >&2; exit 2 ;;
+esac

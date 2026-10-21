@@ -167,15 +167,19 @@ $D --key BorderSize None
 $D --key BorderSizeAuto false
 $KW --group Windows --key TitlebarDoubleClickCommand Maximize
 
-# same lights on GTK client-side decorations (Firefox, GTK apps). GTK4 reads gtk.css; GTK3's
+# same lights on GTK client-side decorations (GTK apps). GTK4 reads gtk.css; GTK3's
 # KDE decorations module outranks gtk.css, so the bridge daemon keeps an import in
-# gtk-3.0/window_decorations.css (KDE rewrites that file)
+# gtk-3.0/window_decorations.css (KDE rewrites that file). The daemon also pins GTK's button
+# layout to close,minimize,maximize (KDE would drop maximize: it can't map our green slot).
 for v in gtk-3.0 gtk-4.0; do
     mkdir -p "$CFG/$v"
     ln -sfn "$HERE/aurorae/gtk/revo-titlebuttons" "$CFG/$v/revo-titlebuttons"
     ln -sfn "$HERE/aurorae/gtk/revo-titlebuttons.css" "$CFG/$v/revo-titlebuttons.css"
 done
 grep -qs "revo-titlebuttons.css" "$CFG/gtk-4.0/gtk.css" || printf "\n@import 'revo-titlebuttons.css';\n" >>"$CFG/gtk-4.0/gtk.css"
+# Firefox / LibreWolf / Waterfox draw their own buttons: userChrome.css in every profile
+# (restart the browser to see them)
+"$HERE/bin/revo-firefox-theme" install
 
 # window opacity (92% active / 85% inactive, opaque in fullscreen) is applied by the bridge's
 # KWin script; remove the fixed window rule older installs created

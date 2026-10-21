@@ -35,6 +35,11 @@ for v in gtk-3.0 gtk-4.0; do
     rm -f "$CFG/$v/revo-titlebuttons" "$CFG/$v/revo-titlebuttons.css"
     sed -i "/@import 'revo-titlebuttons.css';/d" "$CFG/$v/gtk.css" "$CFG/$v/window_decorations.css" 2>/dev/null || true
 done
+"$HERE/bin/revo-firefox-theme" remove || true
+# let KDE recompute GTK's button layout from the restored kwinrc (the bridge pinned it)
+K="gdbus call --session --dest org.kde.kded6 --object-path /kded --method org.kde.kded6"
+$K.unloadModule gtkconfig >/dev/null 2>&1 || true
+$K.loadModule gtkconfig >/dev/null 2>&1 || true
 for s in eqsh macos; do
     [[ -L "$CFG/quickshell/$s" ]] && rm "$CFG/quickshell/$s"
     [[ -e "$BACKUP/quickshell/$s" ]] && mv "$BACKUP/quickshell/$s" "$CFG/quickshell/"
