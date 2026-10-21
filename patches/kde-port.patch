@@ -191,6 +191,135 @@ index 5d12d90..7f5398a 100644
      property color color: "#10000000"
      property bool highlightEnabled: true
      property bool transparent: false
+diff --git a/eqsh/ui/components/panel/SysTrayItem.qml b/eqsh/ui/components/panel/SysTrayItem.qml
+index e9c06fe..c4ee75c 100644
+--- a/eqsh/ui/components/panel/SysTrayItem.qml
++++ b/eqsh/ui/components/panel/SysTrayItem.qml
+@@ -14,11 +14,20 @@ MouseArea {
+     property var bar: root.QsWindow.window
+     required property SystemTrayItem item
+     property bool targetMenuOpen: false
+-    property int trayItemWidth: 24
++    // one size for every item, like macOS menu bar extras
++    property int iconSize: 16
++
++    // theme icons that have a "-symbolic" variant render as white glyphs (macOS menu bar
++    // style); everything else keeps its own colours. Tinting full-colour icons white turned
++    // them into blobs.
++    readonly property string themeIcon: (item.icon || "").startsWith("image://icon/")
++        ? item.icon.slice("image://icon/".length).split("?")[0] : ""
++    readonly property string symbolicPath: themeIcon === "" ? ""
++        : Quickshell.iconPath(themeIcon.endsWith("-symbolic") ? themeIcon : themeIcon + "-symbolic", true)
+ 
+     acceptedButtons: Qt.LeftButton | Qt.RightButton
+-    implicitHeight: 24
+-    implicitWidth: trayItemWidth
++    implicitHeight: iconSize
++    implicitWidth: iconSize
+     onClicked: (event) => {
+         switch (event.button) {
+         case Qt.LeftButton:
+@@ -87,12 +96,12 @@ MouseArea {
+ 
+     IconImage {
+         id: trayIcon
+-        implicitHeight: 24
+-        implicitWidth: 24
+-        implicitSize: 24
+-        source: setupIcon(root.item.icon)
+-        anchors.fill: parent
+-        layer.enabled: Config.bar.monochromeTray
++        implicitSize: root.iconSize
++        width: root.iconSize
++        height: root.iconSize
++        anchors.centerIn: parent
++        source: root.symbolicPath !== "" ? root.symbolicPath : setupIcon(root.item.icon)
++        layer.enabled: Config.bar.monochromeTray && root.symbolicPath !== ""
+         layer.effect: MultiEffect {
+             colorization: 1
+             colorizationColor: "#fff"
+diff --git a/eqsh/ui/components/panel/SystemTray.qml b/eqsh/ui/components/panel/SystemTray.qml
+index f21f366..16a5c2d 100644
+--- a/eqsh/ui/components/panel/SystemTray.qml
++++ b/eqsh/ui/components/panel/SystemTray.qml
+@@ -11,54 +11,48 @@ BButton {
+   id: root
+ 
+   height: 25
+-  implicitWidth: rowLayout.implicitWidth
+-  property int tempWidth
++  implicitWidth: rowLayout.implicitWidth + 12
+ 
+-  property bool opened: true
++  // Like Plasma's tray and the macOS menu bar: passive items (idle helpers such as the
++  // Xwayland video bridge) wait behind the chevron; active / attention items always show.
++  property bool expanded: false
++  readonly property int hiddenCount: SystemTray.items.values.filter(i => i.status === Status.Passive).length
++  onHiddenCountChanged: if (hiddenCount === 0) expanded = false
+ 
+   RowLayout {
+     id: rowLayout
+ 
+-    anchors.fill: parent
+-    Layout.minimumWidth: 50
+-    spacing: 5
+-    clip: true
+-
+-    Item {
+-      Layout.preferredWidth: 5
+-    }
++    anchors.centerIn: parent
++    spacing: 10
+ 
+     Repeater {
+       model: SystemTray.items
+       SysTrayItem {
+-        Layout.alignment: Qt.AlignCenter
+         required property SystemTrayItem modelData
+         item: modelData
+-        Layout.rightMargin: !opened ? -tempWidth*2 : 0
++        visible: root.expanded || modelData.status !== Status.Passive
++        Layout.alignment: Qt.AlignVCenter
+       }
+     }
+ 
+     VectorImage {
+       id: stToggle
+-      Layout.rightMargin: 5
++      visible: root.hiddenCount > 0
+       source: Qt.resolvedUrl(Quickshell.shellDir + "/media/icons/chevron-left.svg")
+-      width: 23
+-      height: 23
+-      Layout.preferredWidth: 23
+-      Layout.preferredHeight: 23
++      Layout.preferredWidth: 14
++      Layout.preferredHeight: 14
++      Layout.alignment: Qt.AlignVCenter
+       preferredRendererType: VectorImage.CurveRenderer
++      opacity: chevronMa.containsMouse ? 1 : 0.7
++      rotation: root.expanded ? 180 : 0
++      Behavior on rotation { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+       MouseArea {
++        id: chevronMa
+         anchors.fill: parent
+-        onClicked: {
+-          opened = !opened
+-          if (opened) {
+-            stToggle.source = Qt.resolvedUrl(Quickshell.shellDir + "/media/icons/chevron-left.svg")
+-          } else {
+-            tempWidth = rowLayout.implicitWidth
+-            stToggle.source = Qt.resolvedUrl(Quickshell.shellDir + "/media/icons/chevron-right.svg")
+-          }
+-        }
++        anchors.margins: -6
++        hoverEnabled: true
++        onClicked: root.expanded = !root.expanded
+       }
+     }
+   }
+-}
+\ No newline at end of file
++}
 diff --git a/eqsh/ui/controls/advanced/BoxGlass.qml b/eqsh/ui/controls/advanced/BoxGlass.qml
 index a11454b..f9edd2f 100644
 --- a/eqsh/ui/controls/advanced/BoxGlass.qml
