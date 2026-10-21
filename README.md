@@ -41,7 +41,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | Hyprland | KDE port |
 |---|---|
 | `hyprliquid` liquid glass on dock / eqsh popovers / launchpad | Quickshell `BackgroundEffect` blur regions + [Glass](https://github.com/4v3ngR/kwin-effects-glass) KWin effect (refraction, edge lighting, specular rim) |
-| `decoration.blur`, 92/85 % opacity, rounding 14, faint border | Glass force-blur, KWin window rule `revo-shell-opacity`, [KDE-Rounded-Corners](https://github.com/matinlotfali/KDE-Rounded-Corners) |
+| `decoration.blur`, 92/85 % opacity, rounding 14, faint border | Glass force-blur, opacity set by the bridge's KWin script (opaque in fullscreen), [KDE-Rounded-Corners](https://github.com/matinlotfali/KDE-Rounded-Corners) |
 | `windowsIn/Out … slide` with `winIn`/`winOut` beziers | `kwin/revo-motion`: slide from the nearest edge, OutBack / InBack |
 | genie minimize (needs Hyprland screencopy) | KWin Magic Lamp |
 | `Hyprland.toplevels`, `ToplevelManager`, `hyprctl clients` | `kde-bridge/`: KWin script → `revo-kwin-bridge.py` (systemd user service) → `KdeToplevels` QML singleton, plus a `hyprctl` shim on the shell's PATH only |

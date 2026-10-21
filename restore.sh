@@ -17,6 +17,14 @@ rm -f "$CFG/systemd/user/revo-kwin-bridge.service"
 systemctl --user daemon-reload
 gdbus call --session --dest org.kde.KWin --object-path /Scripting \
     --method org.kde.kwin.Scripting.unloadScript revo-kwin-bridge >/dev/null 2>&1 || true
+# the bridge script managed window opacity: put every window back to opaque
+reset_js="$(mktemp --suffix=.js)"
+echo 'workspace.windowList().forEach(function (w) { w.opacity = 1.0; });' >"$reset_js"
+KS="gdbus call --session --dest org.kde.KWin --object-path /Scripting --method org.kde.kwin.Scripting"
+$KS.loadScript "$reset_js" revo-opacity-reset >/dev/null 2>&1 && $KS.start >/dev/null 2>&1 || true
+sleep 0.5
+$KS.unloadScript revo-opacity-reset >/dev/null 2>&1 || true
+rm -f "$reset_js"
 
 for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc; do
     [[ -f "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "$CFG/$f"

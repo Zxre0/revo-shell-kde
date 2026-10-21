@@ -155,25 +155,18 @@ $KGA.setForeignShortcut "['plasmashell','activate application launcher','plasmas
 $KW --group org.kde.kdecoration2 --key ButtonsOnLeft XIA
 $KW --group org.kde.kdecoration2 --key ButtonsOnRight ""
 
-say "Window rule: Hyprland opacity (active 92%, inactive 85%)"
+# window opacity (92% active / 85% inactive, opaque in fullscreen) is applied by the bridge's
+# KWin script; remove the fixed window rule older installs created
 RULE=revo-shell-opacity
 rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules)"
-if [[ ",$rules," != *",$RULE,"* ]]; then
-    rules="${rules:+$rules,}$RULE"
-    count=$(( $(kreadconfig6 --file kwinrulesrc --group General --key count --default 0) + 1 ))
+if [[ ",$rules," == *",$RULE,"* ]]; then
+    rules="$(tr ',' '\n' <<<"$rules" | grep -vx "$RULE" | paste -sd, -)"
     kwriteconfig6 --file kwinrulesrc --group General --key rules "$rules"
-    kwriteconfig6 --file kwinrulesrc --group General --key count "$count"
+    kwriteconfig6 --file kwinrulesrc --group General --key count \
+        "$(( $(kreadconfig6 --file kwinrulesrc --group General --key count --default 1) - 1 ))"
+    kwriteconfig6 --file kwinrulesrc --group "$RULE" --key Description --delete
+    sed -i "/^\[$RULE\]/,/^\[/{/^\[$RULE\]/d;/^\[/!d}" "$CFG/kwinrulesrc"
 fi
-WR="kwriteconfig6 --file kwinrulesrc --group $RULE"
-$WR --key Description "revo-shell: Hyprland window opacity"
-$WR --key wmclass '^(?!(quickshell|qs)( |$)).*'
-$WR --key wmclasscomplete true
-$WR --key wmclassmatch 3
-$WR --key types 1
-$WR --key opacityactive 92
-$WR --key opacityactiverule 2
-$WR --key opacityinactive 85
-$WR --key opacityinactiverule 2
 
 plasma-apply-colorscheme BreezeDark >/dev/null || true
 

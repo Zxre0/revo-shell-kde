@@ -39,8 +39,21 @@ function push() {
     callDBus("org.revo.KWinBridge", "/", "org.revo.KWinBridge", "update", JSON.stringify(state));
 }
 
+// Hyprland's active_opacity 0.92 / inactive_opacity 0.85, but opaque in fullscreen
+// (a KWin window rule can't make that exception)
+function applyOpacity(w) {
+    if (!w || !w.normalWindow || /^(quickshell|qs)$/i.test(String(w.resourceClass)))
+        return;
+    w.opacity = w.fullScreen ? 1.0 : (w === workspace.activeWindow ? 0.92 : 0.85);
+}
+
+function applyOpacityAll() {
+    workspace.windowList().forEach(applyOpacity);
+}
+
 function watch(w) {
     if (!w) return;
+    if (w.fullScreenChanged) w.fullScreenChanged.connect(function () { applyOpacity(w); });
     ["captionChanged", "minimizedChanged", "fullScreenChanged", "frameGeometryChanged",
      "outputChanged", "desktopsChanged", "skipTaskbarChanged"].forEach(function (sig) {
         if (w[sig]) w[sig].connect(push);
@@ -48,10 +61,11 @@ function watch(w) {
 }
 
 workspace.windowList().forEach(watch);
-workspace.windowAdded.connect(function (w) { watch(w); push(); });
+workspace.windowAdded.connect(function (w) { watch(w); applyOpacity(w); push(); });
 workspace.windowRemoved.connect(push);
-workspace.windowActivated.connect(push);
+workspace.windowActivated.connect(function () { applyOpacityAll(); push(); });
 workspace.currentDesktopChanged.connect(push);
+applyOpacityAll();
 push();
 
 // macOS-style shortcuts → the shell's command channel (ShellController reads /tmp/macos_cmd).
