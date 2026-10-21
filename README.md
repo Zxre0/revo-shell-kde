@@ -33,6 +33,7 @@ To put the shell on a monitor other than KDE's primary one, run `REVO_SCREEN=DP-
 | Meta+N | Notification Center |
 | Meta+Shift+E | Session menu |
 | Meta+Alt+Esc | Force Quit |
+| Ctrl+Meta+F | Toggle full screen (the way out, since full-screen windows have no title bar) |
 
 You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: …").
 
@@ -44,6 +45,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `decoration.blur`, 92/85 % opacity, rounding 14, faint border | Glass force-blur, opacity set by the bridge's KWin script (opaque in fullscreen), [KDE-Rounded-Corners](https://github.com/matinlotfali/KDE-Rounded-Corners) |
 | `windowsIn/Out … slide` with `winIn`/`winOut` beziers | `kwin/revo-motion`: slide from the nearest edge, OutBack / InBack |
 | genie minimize (needs Hyprland screencopy) | KWin Magic Lamp |
+| `hyprbars` traffic lights | `aurorae/`: RevoTahoe decoration (red close, yellow minimize, green full screen, hover glyphs) + matching GTK CSS for Firefox / GTK apps |
 | `Hyprland.toplevels`, `ToplevelManager`, `hyprctl clients` | `kde-bridge/`: KWin script → `revo-kwin-bridge.py` (systemd user service) → `KdeToplevels` QML singleton, plus a `hyprctl` shim on the shell's PATH only |
 | `HyprlandFocusGrab` | transparent click-catcher layer |
 | ext-session-lock screen | KDE's screen locker |
@@ -59,6 +61,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `patches/kde-port.patch` | every change to upstream's `eqsh` + `macos` shells |
 | `kde-bridge/` | KWin script, bridge daemon + service, `hyprctl` shim |
 | `kwin/revo-motion/` | window open/close animation effect |
+| `aurorae/` | `generate.py` → RevoTahoe title bar theme + GTK title-button CSS |
 | `bin/revo-shell-kde` | launcher (bridge + Quickshell) |
 
 ## Credits and licensing

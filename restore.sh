@@ -30,6 +30,11 @@ for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.deskt
     [[ -f "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "$CFG/$f"
 done
 rm -f "$HOME/.local/share/kwin/effects/revo-motion"
+rm -f "$HOME/.local/share/aurorae/themes/RevoTahoe"
+for v in gtk-3.0 gtk-4.0; do
+    rm -f "$CFG/$v/revo-titlebuttons" "$CFG/$v/revo-titlebuttons.css"
+    sed -i "/@import 'revo-titlebuttons.css';/d" "$CFG/$v/gtk.css" "$CFG/$v/window_decorations.css" 2>/dev/null || true
+done
 for s in eqsh macos; do
     [[ -L "$CFG/quickshell/$s" ]] && rm "$CFG/quickshell/$s"
     [[ -e "$BACKUP/quickshell/$s" ]] && mv "$BACKUP/quickshell/$s" "$CFG/quickshell/"

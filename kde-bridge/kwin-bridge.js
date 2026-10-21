@@ -51,8 +51,19 @@ function applyOpacityAll() {
     workspace.windowList().forEach(applyOpacity);
 }
 
+// The RevoTahoe decoration's green light sits in the "keep below" button slot (KDE has no
+// full-screen button): turn that toggle into full screen, like the macOS green button.
+function greenLight(w) {
+    if (!w.keepBelow)
+        return;
+    w.keepBelow = false;
+    if (w.fullScreenable)
+        w.fullScreen = !w.fullScreen;
+}
+
 function watch(w) {
     if (!w) return;
+    if (w.keepBelowChanged) w.keepBelowChanged.connect(function () { greenLight(w); });
     if (w.fullScreenChanged) w.fullScreenChanged.connect(function () { applyOpacity(w); });
     ["captionChanged", "minimizedChanged", "fullScreenChanged", "frameGeometryChanged",
      "outputChanged", "desktopsChanged", "skipTaskbarChanged"].forEach(function (sig) {
@@ -81,4 +92,11 @@ push();
     registerShortcut("revo-" + s[0], "revo-shell: " + s[1], s[2], function () {
         callDBus("org.revo.KWinBridge", "/", "org.revo.KWinBridge", "command", s[0]);
     });
+});
+
+// macOS ⌃⌘F: the way back out of full screen (full-screen windows have no title bar)
+registerShortcut("revo-fullscreen", "revo-shell: Toggle Full Screen", "Ctrl+Meta+F", function () {
+    var w = workspace.activeWindow;
+    if (w && w.fullScreenable)
+        w.fullScreen = !w.fullScreen;
 });

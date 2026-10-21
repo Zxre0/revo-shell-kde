@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Revo Tahoe
+Comment=macOS Tahoe traffic lights for revo-shell-kde (green = full screen)
+X-KDE-PluginInfo-Name=RevoTahoe
+X-KDE-PluginInfo-Author=revo-shell-kde
+X-KDE-PluginInfo-Website=https://github.com/Zxre0/revo-shell-kde
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=MIT

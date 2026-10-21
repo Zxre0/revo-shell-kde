@@ -151,9 +151,29 @@ KGA="gdbus call --session --dest org.kde.kglobalaccel --object-path /kglobalacce
 $KGA.setForeignShortcut "['plasmashell','activate application launcher','plasmashell','Activate Application Launcher']" \
     "[150994992]" >/dev/null || true   # Alt+F1
 
-# macOS traffic-light side for the window buttons
-$KW --group org.kde.kdecoration2 --key ButtonsOnLeft XIA
-$KW --group org.kde.kdecoration2 --key ButtonsOnRight ""
+# macOS traffic lights: RevoTahoe Aurorae decoration (aurorae/generate.py). Red close,
+# yellow minimize, green full screen (the "keep below" slot, turned into full screen by the
+# bridge's KWin script); double-click the title bar to maximize, Ctrl+Meta+F leaves full screen
+mkdir -p "$HOME/.local/share/aurorae/themes"
+ln -sfn "$HERE/aurorae/RevoTahoe" "$HOME/.local/share/aurorae/themes/RevoTahoe"
+D="$KW --notify --group org.kde.kdecoration2"
+$D --key library org.kde.kwin.aurorae
+$D --key theme __aurorae__svg__RevoTahoe
+$D --key ButtonsOnLeft XIB
+$D --key ButtonsOnRight ""
+$D --key BorderSize None
+$D --key BorderSizeAuto false
+$KW --group Windows --key TitlebarDoubleClickCommand Maximize
+
+# same lights on GTK client-side decorations (Firefox, GTK apps). GTK4 reads gtk.css; GTK3's
+# KDE decorations module outranks gtk.css, so the bridge daemon keeps an import in
+# gtk-3.0/window_decorations.css (KDE rewrites that file)
+for v in gtk-3.0 gtk-4.0; do
+    mkdir -p "$CFG/$v"
+    ln -sfn "$HERE/aurorae/gtk/revo-titlebuttons" "$CFG/$v/revo-titlebuttons"
+    ln -sfn "$HERE/aurorae/gtk/revo-titlebuttons.css" "$CFG/$v/revo-titlebuttons.css"
+done
+grep -qs "revo-titlebuttons.css" "$CFG/gtk-4.0/gtk.css" || printf "\n@import 'revo-titlebuttons.css';\n" >>"$CFG/gtk-4.0/gtk.css"
 
 # window opacity (92% active / 85% inactive, opaque in fullscreen) is applied by the bridge's
 # KWin script; remove the fixed window rule older installs created

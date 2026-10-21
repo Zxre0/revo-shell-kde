@@ -19,13 +19,18 @@ import uuid
 import dbus
 import dbus.service
 from dbus.mainloop.glib import DBusGMainLoop
-from gi.repository import GLib
+from gi.repository import Gio, GLib
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 BRIDGE_JS = os.path.join(HERE, "kwin-bridge.js")
 RUNTIME = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "revo-kwin")
 STATE_FILE = os.path.join(RUNTIME, "windows.json")
 BRIDGE_NAME = "revo-kwin-bridge"
+CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+# KDE's GTK3 window-decorations module loads this file above gtk.css priority and rewrites
+# it on colour/decoration changes; our traffic-light CSS has to be imported from it
+GTK3_DECO_CSS = os.path.join(CONFIG, "gtk-3.0", "window_decorations.css")
+GTK3_IMPORT = "@import 'revo-titlebuttons.css';"
 
 ACTIONS = {
     "activate": "w.minimized = false; workspace.activeWindow = w;",
@@ -124,6 +129,20 @@ class Bridge(dbus.service.Object):
         run_kwin_script(BRIDGE_JS, BRIDGE_NAME)
 
 
+def ensure_gtk_traffic_lights(*_):
+    if not os.path.exists(os.path.join(CONFIG, "gtk-3.0", "revo-titlebuttons.css")):
+        return
+    try:
+        with open(GTK3_DECO_CSS) as f:
+            css = f.read()
+    except FileNotFoundError:
+        css = ""
+    if GTK3_IMPORT in css:
+        return
+    with open(GTK3_DECO_CSS, "w") as f:
+        f.write(GTK3_IMPORT + "\n" + css)
+
+
 def main():
     os.makedirs(RUNTIME, exist_ok=True)
     DBusGMainLoop(set_as_default=True)
@@ -133,6 +152,9 @@ def main():
         return 0
     name = dbus.service.BusName("org.revo.KWinBridge", bus, do_not_queue=True)  # noqa: F841
     bridge = Bridge(bus)
+    ensure_gtk_traffic_lights()
+    monitor = Gio.File.new_for_path(GTK3_DECO_CSS).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+    monitor.connect("changed", lambda *a: GLib.timeout_add(300, lambda: ensure_gtk_traffic_lights() and False))
     # (re)load the KWin side so it pushes a full snapshot to us right away
     GLib.idle_add(lambda: bridge.resync() and False)
     GLib.MainLoop().run()
