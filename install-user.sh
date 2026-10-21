@@ -121,7 +121,8 @@ $G --key MenuCornerRadius 12
 # whose surfaces declare exact glass regions via ext-background-effect
 $G --key BlurMatching false
 $G --key BlurNonMatching true
-$G --key WindowClasses "$(printf 'quickshell\nqs')"
+# (+ xwaylandvideobridge: an invisible helper window for X11 screen sharing)
+$G --key WindowClasses "$(printf 'quickshell\nqs\nxwaylandvideobridge')"
 $G --key BlurDecorations true
 $G --key BlurMenus true
 $G --key BlurDocks false
@@ -129,6 +130,7 @@ $G --key TransparentBlur true
 
 # Hyprland: rounding 14, col.active_border rgba(ffffff10), soft shadow
 R="$KW --group Round-Corners"
+$R --key Exclusions xwaylandvideobridge
 $R --key Size 14
 $R --key InactiveCornerRadius 14
 $R --key OutlineThickness 1

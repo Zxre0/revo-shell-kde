@@ -42,7 +42,9 @@ function push() {
 // Hyprland's active_opacity 0.92 / inactive_opacity 0.85, but opaque in fullscreen
 // (a KWin window rule can't make that exception)
 function applyOpacity(w) {
-    if (!w || !w.normalWindow || /^(quickshell|qs)$/i.test(String(w.resourceClass)))
+    // skip-taskbar windows are helpers (e.g. xwaylandvideobridge keeps itself invisible
+    // through its own opacity) and the shell's layer surfaces
+    if (!w || !w.normalWindow || w.skipTaskbar || /^(quickshell|qs)$/i.test(String(w.resourceClass)))
         return;
     w.opacity = w.fullScreen ? 1.0 : (w === workspace.activeWindow ? 0.92 : 0.85);
 }
