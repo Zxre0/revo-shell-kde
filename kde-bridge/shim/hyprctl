@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""hyprctl stand-in for running revo-shell on KDE Plasma.
+
+Only on the PATH of the Quickshell process (see revo-shell-kde launcher). Answers the
+queries the shells make from the revo KWin bridge state; Hyprland-only commands
+(eval/keyword/dispatch/setcursor/...) are accepted and ignored. Inside a real Hyprland
+session it hands everything to /usr/bin/hyprctl.
+"""
+import json
+import os
+import subprocess
+import sys
+
+REAL = "/usr/bin/hyprctl"
+args = sys.argv[1:]
+
+if os.environ.get("HYPRLAND_INSTANCE_SIGNATURE") and os.path.exists(REAL):
+    os.execv(REAL, [REAL] + args)
+
+words = [a for a in args if not a.startswith("-")]
+cmd = words[0] if words else ""
+
+
+def state():
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "revo-kwin", "windows.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {"windows": []}
+
+
+def clients():
+    out = []
+    for w in state().get("windows", []):
+        out.append({
+            "address": w["id"],
+            "class": w.get("resourceClass") or w.get("appId", ""),
+            "initialClass": w.get("appId", ""),
+            "title": w.get("title", ""),
+            "initialTitle": w.get("title", ""),
+            "pid": w.get("pid", 0),
+            "monitor": w.get("screen", ""),
+            "fullscreen": 2 if w.get("fullscreen") else 0,
+            "hidden": bool(w.get("minimized")),
+            "focusHistoryID": 0 if w.get("activated") else 1,
+        })
+    return out
+
+
+def active_keymap():
+    # KDE keyboard layout service: current index into the configured layout list
+    try:
+        idx = subprocess.run(["gdbus", "call", "--session", "--dest", "org.kde.keyboard",
+                              "--object-path", "/Layouts", "--method", "org.kde.KeyboardLayouts.getLayout"],
+                             capture_output=True, text=True, timeout=2).stdout
+        lst = subprocess.run(["gdbus", "call", "--session", "--dest", "org.kde.keyboard",
+                              "--object-path", "/Layouts", "--method", "org.kde.KeyboardLayouts.getLayoutsList"],
+                             capture_output=True, text=True, timeout=2).stdout
+        i = int(idx.strip("()\n, ").split()[-1])
+        names = [p for p in lst.replace("'", '"').split('"')[1::2]]
+        # entries come as (short, variant, long) triples
+        return names[i * 3 + 2] if len(names) >= i * 3 + 3 else names[i * 3]
+    except Exception:
+        return "English (US)"
+
+
+if cmd == "clients":
+    print(json.dumps(clients()))
+elif cmd == "activewindow":
+    act = next((c for c in clients() if c["focusHistoryID"] == 0), {})
+    print(json.dumps(act))
+elif cmd == "devices":
+    print(json.dumps({"keyboards": [{"name": "kde", "main": True, "active_keymap": active_keymap()}], "mice": []}))
+elif cmd == "monitors":
+    print("[]")
+# everything else (eval, keyword, dispatch, setcursor, reload, ...) is a no-op on KDE
+sys.exit(0)

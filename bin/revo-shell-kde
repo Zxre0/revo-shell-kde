@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Start revo-shell (macos + eqsh) on KDE Plasma: the KWin bridge daemon, then Quickshell
+# with the hyprctl shim on its PATH. Safe to re-run: restarts the shell.
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+QS=/usr/local/bin/qs
+SHELL_DIR="$HOME/.config/quickshell/macos"
+
+# always (re)start the bridge: a leftover instance from an earlier session would hold the
+# D-Bus name while talking to a KWin that no longer exists
+systemctl --user restart revo-kwin-bridge.service
+for _ in $(seq 30); do
+    [[ "$(gdbus call --session --dest org.revo.KWinBridge --object-path / \
+        --method org.freedesktop.DBus.Peer.Ping 2>/dev/null)" == "()" ]] && break
+    sleep 0.1
+done
+
+"$QS" kill -p "$SHELL_DIR" >/dev/null 2>&1 || true
+export PATH="$HERE/kde-bridge/shim:$PATH"
+exec "$QS" -p "$SHELL_DIR" "$@"

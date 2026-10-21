@@ -1,0 +1,9 @@
+[Unit]
+Description=revo-shell KWin bridge (window list, actions, shortcuts for the Quickshell shell)
+PartOf=graphical-session.target
+After=plasma-kwin_wayland.service
+
+[Service]
+ExecStart=/usr/bin/python3 %h/revo-kde/kde-bridge/revo-kwin-bridge.py
+Restart=on-failure
+RestartSec=1

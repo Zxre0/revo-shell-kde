@@ -1,0 +1,1201 @@
+diff --git a/eqsh/services/CompositorService.qml b/eqsh/services/CompositorService.qml
+index 711f7eb..bf35431 100644
+--- a/eqsh/services/CompositorService.qml
++++ b/eqsh/services/CompositorService.qml
+@@ -34,15 +34,17 @@ Singleton {
+             screenName = Hyprland.focusedWorkspace.monitor.name;
+         else if (isNiri && NiriService.currentOutput)
+             screenName = NiriService.currentOutput;
++        else if (KdeToplevels.isKde)
++            screenName = KdeToplevels.activeScreen;
+ 
+         if (!screenName)
+-            return Quickshell.screens.length > 0 ? Quickshell.screens[0] : null;
++            return Quickshell.screens.length > 0 ? KdeToplevels.primaryScreen : null;
+ 
+         for (let i = 0; i < Quickshell.screens.length; i++) {
+             if (Quickshell.screens[i].name === screenName)
+                 return Quickshell.screens[i];
+         }
+-        return Quickshell.screens.length > 0 ? Quickshell.screens[0] : null;
++        return Quickshell.screens.length > 0 ? KdeToplevels.primaryScreen : null;
+     }
+ 
+     Connections {
+diff --git a/eqsh/services/KdeToplevels.qml b/eqsh/services/KdeToplevels.qml
+new file mode 100644
+index 0000000..9addb13
+--- /dev/null
++++ b/eqsh/services/KdeToplevels.qml
+@@ -0,0 +1,149 @@
++pragma Singleton
++pragma ComponentBehavior: Bound
++
++import QtQuick
++import Quickshell
++import Quickshell.Io
++import Quickshell.Wayland
++
++// Drop-in for ToplevelManager on KDE Plasma.
++// KWin exposes no wlr-foreign-toplevel, so window state comes from the revo KWin bridge
++// (~/revo-kde/kde-bridge): a KWin script pushes the window list to revo-kwin-bridge.py,
++// which writes $XDG_RUNTIME_DIR/revo-kwin/windows.json. Writes to minimized / maximized /
++// fullscreen and calls to activate() / close() are sent back through the bridge.
++// On any other compositor this just forwards ToplevelManager.
++Singleton {
++    id: root
++
++    readonly property bool isKde: (Quickshell.env("XDG_CURRENT_DESKTOP") ?? "").toUpperCase().indexOf("KDE") !== -1
++
++    readonly property var toplevels: isKde ? kdeModel : ToplevelManager.toplevels
++    readonly property var activeToplevel: isKde ? kdeModel.active : ToplevelManager.activeToplevel
++    readonly property string currentDesktop: kdeModel.currentDesktop
++    readonly property string activeScreen: kdeModel.activeScreen
++
++    // Screen the shell lives on (bar, dock, popups). Quickshell.screens[0] is just Qt's
++    // enumeration order, not the primary monitor: use $REVO_SCREEN if set, else KDE's
++    // primary output (kscreen priority 1), else the first screen.
++    property string primaryScreenName: Quickshell.env("REVO_SCREEN") ?? ""
++    readonly property var primaryScreen: Quickshell.screens.find(s => s.name === primaryScreenName) ?? Quickshell.screens[0]
++
++    Process {
++        running: root.isKde && !Quickshell.env("REVO_SCREEN")
++        command: ["kscreen-doctor", "-j"]
++        stdout: StdioCollector {
++            onStreamFinished: {
++                try {
++                    const outs = JSON.parse(text).outputs.filter(o => o.enabled);
++                    const primary = outs.find(o => o.priority === 1) ?? outs[0];
++                    if (primary)
++                        root.primaryScreenName = primary.name;
++                } catch (e) {
++                    console.warn("KdeToplevels: kscreen-doctor:", e);
++                }
++            }
++        }
++    }
++
++    function send(id, verb) {
++        Quickshell.execDetached(["gdbus", "call", "--session", "--dest", "org.revo.KWinBridge",
++                                 "--object-path", "/", "--method", "org.revo.KWinBridge.action", id, verb]);
++    }
++
++    QtObject {
++        id: kdeModel
++        property var values: []
++        property var active: null
++        property string currentDesktop: ""
++        property string activeScreen: ""
++        property var byId: ({})
++    }
++
++    Component {
++        id: toplevelComp
++        QtObject {
++            id: tl
++            property string kwinId
++            property string appId
++            property string resourceClass
++            property string title
++            property int pid
++            property bool activated
++            property bool minimized
++            property bool maximized
++            property bool fullscreen
++            property string screenName
++            property var desktops: []
++            property bool onAllDesktops
++            // Hyprland-IPC shaped view, for code written against Hyprland.toplevels
++            readonly property string address: kwinId
++            readonly property var lastIpcObject: ({ address: kwinId, "class": resourceClass, initialClass: appId,
++                                                    title: title, initialTitle: title, pid: pid })
++            readonly property var screens: Quickshell.screens.filter(s => s.name === screenName)
++            property bool _syncing: false
++
++            function activate() { root.send(kwinId, "activate"); }
++            function close() { root.send(kwinId, "close"); }
++            function setMinimized(v) { root.send(kwinId, v ? "minimize" : "unminimize"); }
++            function setMaximized(v) { root.send(kwinId, v ? "maximize" : "unmaximize"); }
++            function setFullscreen(v) { root.send(kwinId, v ? "fullscreen" : "unfullscreen"); }
++
++            onMinimizedChanged: if (!_syncing) setMinimized(minimized)
++            onMaximizedChanged: if (!_syncing) setMaximized(maximized)
++            onFullscreenChanged: if (!_syncing) setFullscreen(fullscreen)
++        }
++    }
++
++    function apply(state) {
++        const seen = {};
++        const out = [];
++        const byId = kdeModel.byId;
++        for (const w of (state.windows ?? [])) {
++            let t = byId[w.id];
++            if (!t) {
++                t = toplevelComp.createObject(root, { kwinId: w.id });
++                byId[w.id] = t;
++            }
++            t._syncing = true;
++            t.appId = w.appId;
++            t.resourceClass = w.resourceClass;
++            t.title = w.title;
++            t.pid = w.pid;
++            t.activated = w.activated;
++            t.minimized = w.minimized;
++            t.maximized = w.maximized;
++            t.fullscreen = w.fullscreen;
++            t.screenName = w.screen;
++            t.desktops = w.desktops;
++            t.onAllDesktops = w.onAllDesktops;
++            t._syncing = false;
++            seen[w.id] = true;
++            out.push(t);
++        }
++        for (const id in byId) {
++            if (!seen[id]) {
++                byId[id].destroy();
++                delete byId[id];
++            }
++        }
++        kdeModel.values = out;
++        kdeModel.active = byId[state.activeId] ?? null;
++        kdeModel.currentDesktop = state.currentDesktop ?? "";
++        kdeModel.activeScreen = state.activeScreen ?? "";
++    }
++
++    FileView {
++        id: stateFile
++        path: root.isKde ? (Quickshell.env("XDG_RUNTIME_DIR") + "/revo-kwin/windows.json") : ""
++        watchChanges: true
++        printErrors: false
++        onFileChanged: reload()
++        onLoaded: {
++            try {
++                root.apply(JSON.parse(text()));
++            } catch (e) {
++                console.warn("KdeToplevels: bad state file:", e);
++            }
++        }
++    }
++}
+diff --git a/eqsh/ui/advanced/shader/glass/BoxGlass.qml b/eqsh/ui/advanced/shader/glass/BoxGlass.qml
+index 5d12d90..7f5398a 100644
+--- a/eqsh/ui/advanced/shader/glass/BoxGlass.qml
++++ b/eqsh/ui/advanced/shader/glass/BoxGlass.qml
+@@ -7,6 +7,9 @@ import qs.ui.controls.advanced
+ Item {
+     id: box
+ 
++    // picked up by KdeGlassRegion: KWin blurs (Glass effect refracts) exactly this shape
++    readonly property bool revoGlass: true
++
+     property color color: "#10000000"
+     property bool highlightEnabled: true
+     property bool transparent: false
+diff --git a/eqsh/ui/controls/advanced/BoxGlass.qml b/eqsh/ui/controls/advanced/BoxGlass.qml
+index a11454b..f9edd2f 100644
+--- a/eqsh/ui/controls/advanced/BoxGlass.qml
++++ b/eqsh/ui/controls/advanced/BoxGlass.qml
+@@ -7,6 +7,9 @@ import qs.ui.controls.advanced
+ Item {
+     id: box
+ 
++    // picked up by KdeGlassRegion: KWin blurs (Glass effect refracts) exactly this shape
++    readonly property bool revoGlass: true
++
+     property color color: "#10000000"
+     property bool highlightEnabled: true
+     property bool transparent: false
+diff --git a/eqsh/ui/controls/windows/FollowingPanelWindow.qml b/eqsh/ui/controls/windows/FollowingPanelWindow.qml
+index ae3baa5..accba58 100644
+--- a/eqsh/ui/controls/windows/FollowingPanelWindow.qml
++++ b/eqsh/ui/controls/windows/FollowingPanelWindow.qml
+@@ -14,6 +14,8 @@ PanelWindow {
+             result = Quickshell.screens.find(screen => screen.name == (Hyprland.focusedMonitor?.name || ""))
+         if (CompositorService.isNiri)
+             result = Quickshell.screens.find(screen => screen.name == NiriService.currentOutput)
+-        return result ? result : Quickshell.screens[0]
++        if (KdeToplevels.isKde)
++            result = Quickshell.screens.find(screen => screen.name == KdeToplevels.activeScreen)
++        return result ? result : KdeToplevels.primaryScreen
+     }
+ } 
+\ No newline at end of file
+diff --git a/eqsh/ui/controls/windows/FollowingPop.qml b/eqsh/ui/controls/windows/FollowingPop.qml
+index 185dcbf..d568966 100644
+--- a/eqsh/ui/controls/windows/FollowingPop.qml
++++ b/eqsh/ui/controls/windows/FollowingPop.qml
+@@ -15,6 +15,7 @@ Scope {
+     property int  new_Focus_Method_X: 0
+     property int  new_Focus_Method_Y: 0
+     property bool blur: true
++    readonly property bool _kde: (Quickshell.env("XDG_CURRENT_DESKTOP") ?? "").toUpperCase().indexOf("KDE") !== -1
+     property var keyboardFocus: WlrKeyboardFocus.None
+     property var windows: []
+     property alias screen: panelWindow.screen
+@@ -35,6 +36,19 @@ Scope {
+         id: panelWindow
+         WlrLayershell.layer: WlrLayer.Overlay
+         WlrLayershell.namespace: root.blur ? "eqsh:blur" : "eqsh"
++        // KDE: blur + liquid glass behind every visible glass tile (see KdeGlassRegion)
++        BackgroundEffect.blurRegion: root.blur && root._kde ? kdeGlass : null
++        KdeGlassRegion {
++            id: kdeGlass
++            scanRoot: background
++        }
++        Timer {
++            running: root._kde && root.blur && panelWindow.visible
++            interval: 120
++            repeat: true
++            triggeredOnStart: true
++            onTriggered: kdeGlass.rebuild()
++        }
+         WlrLayershell.keyboardFocus: root.keyboardFocus
+         focusable: true
+         color: "transparent"
+diff --git a/eqsh/ui/controls/windows/KdeGlassRegion.qml b/eqsh/ui/controls/windows/KdeGlassRegion.qml
+new file mode 100644
+index 0000000..a53b776
+--- /dev/null
++++ b/eqsh/ui/controls/windows/KdeGlassRegion.qml
+@@ -0,0 +1,49 @@
++import QtQuick
++import Quickshell
++
++// Blur region covering every visible glass item (revoGlass: true, e.g. BoxGlass) under
++// `scanRoot`, each with its own corner radius.
++// KDE stand-in for Hyprland's alpha-based layer blur ("blur on" + "ignore_alpha 0"):
++// KWin only blurs explicit ext-background-effect regions, which the Glass effect then
++// renders as refractive liquid glass. Call rebuild() whenever the content may have changed.
++Region {
++    id: region
++
++    property Item scanRoot: null
++    property bool active: true
++    property string _signature: ""
++
++    function _collect() {
++        const found = [];
++        const walk = it => {
++            for (const c of it.children) {
++                if (!c.visible || c.opacity <= 0.01)
++                    continue;
++                if (c.revoGlass === true)
++                    found.push(c);
++                else
++                    walk(c);
++            }
++        };
++        if (active && scanRoot)
++            walk(scanRoot);
++        return found;
++    }
++
++    function rebuild() {
++        const found = _collect();
++        const sig = found.map(it => String(it)).join("|");
++        if (sig === _signature)
++            return;
++        _signature = sig;
++        const old = Array.from(region.regions);
++        region.regions = found.map(it => {
++            const r = Qt.createQmlObject("import Quickshell; Region {}", region);
++            r.item = it;
++            r.radius = Qt.binding(() => Math.round(it.radius ?? 0));
++            return r;
++        });
++        for (const r of old)
++            r.destroy();
++    }
++}
+diff --git a/eqsh/ui/controls/windows/Pop.qml b/eqsh/ui/controls/windows/Pop.qml
+index 1ea35de..4c03f5f 100644
+--- a/eqsh/ui/controls/windows/Pop.qml
++++ b/eqsh/ui/controls/windows/Pop.qml
+@@ -15,6 +15,7 @@ Scope {
+     property int  new_Focus_Method_X: 0
+     property int  new_Focus_Method_Y: 0
+     property bool blur: true
++    readonly property bool _kde: (Quickshell.env("XDG_CURRENT_DESKTOP") ?? "").toUpperCase().indexOf("KDE") !== -1
+     property var keyboardFocus: WlrKeyboardFocus.None
+     property var windows: []
+     property alias screen: panelWindow.screen
+@@ -34,6 +35,19 @@ Scope {
+         id: panelWindow
+         WlrLayershell.layer: WlrLayer.Overlay
+         WlrLayershell.namespace: root.namespace
++        // KDE: blur + liquid glass behind every visible glass tile (see KdeGlassRegion)
++        BackgroundEffect.blurRegion: root.blur && root._kde ? kdeGlass : null
++        KdeGlassRegion {
++            id: kdeGlass
++            scanRoot: background
++        }
++        Timer {
++            running: root._kde && root.blur && panelWindow.visible
++            interval: 120
++            repeat: true
++            triggeredOnStart: true
++            onTriggered: kdeGlass.rebuild()
++        }
+         WlrLayershell.keyboardFocus: root.keyboardFocus
+         focusable: true
+         color: "transparent"
+diff --git a/macos/modules/about/AboutWindow.qml b/macos/modules/about/AboutWindow.qml
+index a70cd3d..9183624 100644
+--- a/macos/modules/about/AboutWindow.qml
++++ b/macos/modules/about/AboutWindow.qml
+@@ -13,7 +13,7 @@ import "../common"
+ PopupWindow {
+     id: aboutWindow
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     width: 360
+     height: 640
+     color: "transparent"
+@@ -79,8 +79,8 @@ PopupWindow {
+ 
+     onVisibleChanged: {
+         if (aboutWindow.visible) {
+-            aboutWindow.relativeX = Math.round((Quickshell.screens[0].width - aboutWindow.width) / 2);
+-            aboutWindow.relativeY = Math.round((Quickshell.screens[0].height - aboutWindow.height) / 2 - 40);
++            aboutWindow.relativeX = Math.round((KdeToplevels.primaryScreen.width - aboutWindow.width) / 2);
++            aboutWindow.relativeY = Math.round((KdeToplevels.primaryScreen.height - aboutWindow.height) / 2 - 40);
+             aboutWindow.refresh();
+         }
+     }
+diff --git a/macos/modules/controlcenter/ControlCenter.qml b/macos/modules/controlcenter/ControlCenter.qml
+index 224f6d3..2ac4756 100644
+--- a/macos/modules/controlcenter/ControlCenter.qml
++++ b/macos/modules/controlcenter/ControlCenter.qml
+@@ -9,7 +9,7 @@ Scope {
+ 
+     EqCC.ControlCenter {
+         id: cc
+-        screen: Quickshell.screens[0]
++        screen: KdeToplevels.primaryScreen
+     }
+ 
+     Connections {
+diff --git a/macos/modules/dock/Dock.qml b/macos/modules/dock/Dock.qml
+index 921daee..d660c7f 100644
+--- a/macos/modules/dock/Dock.qml
++++ b/macos/modules/dock/Dock.qml
+@@ -11,7 +11,7 @@ PanelWindow {
+         id: root
+ 
+     // ── 1. الخصائص العادية والمخصصة (يجب أن تكون في البداية معاً) ──
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         bottom: !root.dockVertical
+         top: root.dockVertical
+@@ -91,7 +91,7 @@ PanelWindow {
+     // ملاحظة: pos بإحداثيات نافذة الدوك (النافذة نفسها أسفل الشاشة)،
+     // و anchor.rect يُRelativeTo نفس النافذة، فالقائمة تمتد للأساسب (y سالب).
+     function layoutDownloads() {
+-        const screen = Quickshell.screens[0];
++        const screen = KdeToplevels.primaryScreen;
+         const pos = root.dockVertical
+             ? dlSlot.mapToItem(null, dlSlot.width / 2, dlSlot.height / 2)
+             : dlSlot.mapToItem(null, dlSlot.width / 2, 14);
+@@ -332,20 +332,23 @@ PanelWindow {
+ 
+     margins {
+         bottom: root.dockVertical
+-            ? Math.max(0, Math.round((Quickshell.screens[0].height - root.capsuleWidth) / 2))
++            ? Math.max(0, Math.round((KdeToplevels.primaryScreen.height - root.capsuleWidth) / 2))
+             : Math.round(8 + root.hideOffset)
+         top: root.dockVertical
+-            ? Math.max(0, Math.round((Quickshell.screens[0].height - root.capsuleWidth) / 2))
++            ? Math.max(0, Math.round((KdeToplevels.primaryScreen.height - root.capsuleWidth) / 2))
+             : 0
+         left: root.dockVertical
+             ? (root.dockLeft ? Math.round(8 + root.hideOffset) : 0)
+-            : Math.max(0, (Quickshell.screens[0].width - root.capsuleWidth) / 2)
++            : Math.max(0, (KdeToplevels.primaryScreen.width - root.capsuleWidth) / 2)
+         right: root.dockVertical
+             ? (root.dockLeft ? 0 : Math.round(8 + root.hideOffset))
+-            : Math.max(0, (Quickshell.screens[0].width - root.capsuleWidth) / 2)
++            : Math.max(0, (KdeToplevels.primaryScreen.width - root.capsuleWidth) / 2)
+     }
+    color: "transparent"
+     WlrLayershell.namespace: "macos:dock"
++    // KDE: Hyprland's hyprliquid rule on macos:dock → blur region the Glass effect refracts
++    BackgroundEffect.blurRegion: KdeToplevels.isKde ? dockGlassRegion : null
++    Region { id: dockGlassRegion; item: capsuleBg; radius: capsuleBg.radius }
+ 
+     readonly property int iconZoomFactor: Appearance.dockMagnification ? Math.round(Appearance.dockZoom) : 0
+     readonly property int revealStrip: 6
+@@ -368,7 +371,7 @@ PanelWindow {
+     property int dragSourceIndex: -1
+     property int dragTargetIndex: -1
+ 
+-    readonly property string activeAppId: ToplevelManager.activeToplevel?.appId ?? ""
++    readonly property string activeAppId: KdeToplevels.activeToplevel?.appId ?? ""
+     function isActiveApp(slot) {
+         return root.activeAppId !== "" && slot.app.appIds.includes(root.activeAppId);
+     }
+@@ -401,7 +404,7 @@ PanelWindow {
+         root.menuTarget = slot.app;
+         if (root.dockVertical) {
+             const g = slot.mapToItem(null, 0, slot.height / 2);
+-            const side = Math.max(0, (Quickshell.screens[0].height - root.capsuleWidth) / 2);
++            const side = Math.max(0, (KdeToplevels.primaryScreen.height - root.capsuleWidth) / 2);
+             slotMenu.relativeX = root.dockLeft ? root.width + 8 : -slotMenu.width - 8;
+             slotMenu.relativeY = Math.max(6 - side,
+                 Math.min(root.height + side - slotMenu.height - 6, g.y - slotMenu.height / 2));
+@@ -477,7 +480,7 @@ PanelWindow {
+     PopupWindow {
+         id: nameTip
+         parentWindow: root
+-        screen: Quickshell.screens[0]
++        screen: KdeToplevels.primaryScreen
+         color: "transparent"
+         implicitWidth: tipLabel.width + 16
+         implicitHeight: 22
+@@ -504,7 +507,9 @@ PanelWindow {
+     PopupWindow {
+         id: slotMenu
+         parentWindow: root
+-        screen: Quickshell.screens[0]
++        BackgroundEffect.blurRegion: KdeToplevels.isKde ? slotMenuGlassRegion : null
++        Region { id: slotMenuGlassRegion; item: popupGlass; radius: popupGlass.radius }
++        screen: KdeToplevels.primaryScreen
+         width: 220
+         height: menuCol.implicitHeight + 12
+         visible: root.menuOpen
+diff --git a/macos/modules/genie/Genie.qml b/macos/modules/genie/Genie.qml
+index 88c97d5..3e56eb9 100644
+--- a/macos/modules/genie/Genie.qml
++++ b/macos/modules/genie/Genie.qml
+@@ -3,6 +3,7 @@ import Quickshell
+ import Quickshell.Wayland
+ import Quickshell.Hyprland
+ import Quickshell.Io
++import "../../services"
+ 
+ Scope {
+     id: root
+@@ -99,7 +100,7 @@ Scope {
+                 const o = ht.lastIpcObject || {};
+                 const title = o.title || ht.title || "";
+                 const cls = o.class || "";
+-                tl = ToplevelManager.toplevels.values.find(t => t.appId === cls && t.title === title) || ToplevelManager.toplevels.values.find(t => t.title === title);
++                tl = KdeToplevels.toplevels.values.find(t => t.appId === cls && t.title === title) || KdeToplevels.toplevels.values.find(t => t.title === title);
+             }
+             if (!tl)
+                 return "fail:capture-src";
+@@ -193,7 +194,7 @@ Scope {
+         id: ov
+ 
+         visible: root.state !== "idle"
+-        screen: Quickshell.screens[0]
++        screen: KdeToplevels.primaryScreen
+         anchors {
+             top: true
+             left: true
+diff --git a/macos/modules/launcher/Launcher.qml b/macos/modules/launcher/Launcher.qml
+index 8a69d82..14d4940 100644
+--- a/macos/modules/launcher/Launcher.qml
++++ b/macos/modules/launcher/Launcher.qml
+@@ -14,11 +14,22 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors { top: true; left: true; right: true; bottom: true }
+     color: "transparent"
+-    visible: ShellController.launcherOpen
++    visible: root.shown
+     WlrLayershell.namespace: "macos:launchpad"
++    // glass follows the zooming panel; dropped as soon as closing starts (a blur region
++    // can't fade with the content)
++    BackgroundEffect.blurRegion: KdeToplevels.isKde && ShellController.launcherOpen && root.anim > 0.25 ? launchpadGlassRegion : null
++    Region {
++        id: launchpadGlassRegion
++        x: Math.round(panel.x + panel.width * (1 - panel.scale) / 2)
++        y: Math.round(panel.y + panel.height * (1 - panel.scale) / 2)
++        width: Math.round(panel.width * panel.scale)
++        height: Math.round(panel.height * panel.scale)
++        radius: Math.round(panel.radius * panel.scale)
++    }
+     WlrLayershell.layer: WlrLayer.Overlay
+     WlrLayershell.keyboardFocus: ShellController.launcherOpen ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+ 
+@@ -37,6 +48,65 @@ PanelWindow {
+     property var tabs: []
+     property var sections: []
+     property bool menuOpen: false
++    property string query: ""
++    onQueryChanged: {
++        // typing breaks a text binding, so push programmatic clears into the field by hand
++        if (searchInput.text !== root.query) searchInput.text = root.query;
++        rebuildSections();
++    }
++
++    // search score for an app (0 = no match): prefix > word start > substring > in-order
++    // letters on the name, then weaker hits on generic name / keywords
++    function score(app, q) {
++        const name = app.name.toLowerCase();
++        if (name.startsWith(q)) return 1000 - name.length;
++        const words = name.split(/[\s\-_.]+/);
++        if (words.some(w => w.startsWith(q))) return 800 - name.length;
++        const at = name.indexOf(q);
++        if (at !== -1) return 600 - at;
++        let i = 0;
++        for (const ch of name) if (ch === q[i]) i++;
++        if (i === q.length) return 400 - name.length;
++        const extra = ((app.entry.genericName || "") + " " + Array.from(app.entry.keywords || []).join(" ")).toLowerCase();
++        if (extra.indexOf(q) !== -1) return 200;
++        return 0;
++    }
++
++    function launchTopHit() {
++        const top = root.sections.length > 0 ? root.sections[0].apps[0] : null;
++        if (root.query.trim() !== "" && top) root.launchApp(top);
++    }
++
++    // first printable key typed anywhere in Launchpad starts the search
++    function startTyping(event) {
++        if (event.text.length === 0 || event.text.charCodeAt(0) < 32
++            || (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)))
++            return false;
++        searchInput.forceActiveFocus();
++        searchInput.insert(searchInput.cursorPosition, event.text);
++        return true;
++    }
++
++    // ── open / close animation ──
++    // open: Hyprland "layersIn … winIn, popin 90%" — zoom up from 90% with a slight
++    // overshoot while fading in, icon rows cascading in behind it.
++    // close: quick zoom-out + fade ("layersOut … winOut").
++    property bool shown: false
++    property real anim: 0       // panel: 0 hidden → 1 shown (overshoots a little on open)
++    property real cascade: 1    // 0 → 1 linear, drives the staggered icon rows
++    readonly property int cascadeMs: 560
++
++    ParallelAnimation {
++        id: openAnim
++        NumberAnimation { target: root; property: "anim"; to: 1; duration: 420; easing.type: Easing.OutBack; easing.overshoot: 1.15 }
++        NumberAnimation { target: root; property: "cascade"; from: 0; to: 1; duration: root.cascadeMs; easing.type: Easing.Linear }
++    }
++    NumberAnimation {
++        id: closeAnim
++        target: root; property: "anim"; to: 0
++        duration: 190; easing.type: Easing.InCubic
++        onFinished: root.shown = false
++    }
+ 
+     readonly property var mainCategories: ["AudioVideo", "Development", "Education", "Game", "Graphics", "Network", "Office", "Science", "Settings", "System", "Utility"]
+ 
+@@ -89,10 +159,21 @@ PanelWindow {
+     property var _apps: []
+     property var _counts: ({})
+ 
++    property string _sectionsKey: ""
++
+     function rebuildSections() {
+         var result = [];
++        var q = root.query.trim().toLowerCase();
+ 
+-        if (root.selectedTab !== "All") {
++        if (q !== "") {
++            var hits = [];
++            for (var h = 0; h < root._apps.length; h++) {
++                var sc = root.score(root._apps[h], q);
++                if (sc > 0) hits.push({ app: root._apps[h], sc: sc });
++            }
++            hits.sort((x, y) => y.sc - x.sc || x.app.name.localeCompare(y.app.name));
++            result.push({ title: hits.length > 0 ? "Top Hits" : "No Results", apps: hits.map(x => x.app) });
++        } else if (root.selectedTab !== "All") {
+             var list = [];
+             for (var i = 0; i < root._apps.length; i++) {
+                 var a = root._apps[i];
+@@ -116,6 +197,11 @@ PanelWindow {
+                 result.push({ title: root.friendly(keys[m]), apps: arr });
+             }
+         }
++        // identical content → keep the existing delegates (recreating every icon on each
++        // open made the first frames stutter)
++        var key = root.selectedTab + "|" + q + "|" + result.map(sec => sec.title + ":" + sec.apps.map(a => a.name).join(",")).join(";");
++        if (key === root._sectionsKey) return;
++        root._sectionsKey = key;
+         root.sections = result;
+     }
+ 
+@@ -128,12 +214,19 @@ PanelWindow {
+         target: ShellController
+         function onLauncherOpenChanged() {
+             if (ShellController.launcherOpen) {
++                closeAnim.stop();
++                root.query = "";
++                root.shown = true;
++                openAnim.restart();
+                 root.selectedTab = "All";
+                 root.menuOpen = false;
+                 root.rebuild();
+                 Qt.callLater(() => { if (panelItem) panelItem.forceActiveFocus(); });
+             } else {
+                 root.menuOpen = false;
++                openAnim.stop();
++                root.cascade = 1;
++                closeAnim.restart();
+             }
+         }
+     }
+@@ -150,8 +243,10 @@ PanelWindow {
+             focus: true
+         Keys.onEscapePressed: {
+             if (root.menuOpen) { root.menuOpen = false; event.accepted = true; }
++            else if (root.query !== "") root.query = "";
+             else ShellController.toggle("launcher");
+         }
++        Keys.onPressed: (event) => { if (root.startTyping(event)) event.accepted = true; }
+         MouseArea {
+             anchors.fill: parent
+             onClicked: {
+@@ -166,6 +261,8 @@ PanelWindow {
+             width: root.panelW
+             height: root.panelH
+             radius: 36
++            scale: 0.9 + 0.1 * root.anim
++            opacity: Math.min(1, root.anim * 1.6)
+             color: Qt.rgba(0.10, 0.10, 0.11, 0.55)
+             border.width: 1
+             border.color: Qt.rgba(1, 1, 1, 0.16)
+@@ -211,6 +308,76 @@ PanelWindow {
+ 
+                     Item { Layout.fillWidth: true }
+ 
++                    // ---- search ----
++                    Rectangle {
++                        id: searchField
++                        Layout.preferredWidth: Math.round(root.panelW * 0.3)
++                        Layout.preferredHeight: 34
++                        radius: 17
++                        color: searchInput.activeFocus ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.08)
++                        border.width: 1
++                        border.color: searchInput.activeFocus ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.06)
++                        Behavior on color { ColorAnimation { duration: 120 } }
++
++                        Text {
++                            id: searchGlyph
++                            anchors.left: parent.left
++                            anchors.leftMargin: 12
++                            anchors.verticalCenter: parent.verticalCenter
++                            text: "\u2315"
++                            font { family: Appearance.fontFamily; pixelSize: 17 }
++                            color: Qt.rgba(1, 1, 1, 0.5)
++                        }
++
++                        TextInput {
++                            id: searchInput
++                            anchors.left: searchGlyph.right
++                            anchors.leftMargin: 8
++                            anchors.right: clearBtn.left
++                            anchors.rightMargin: 6
++                            anchors.verticalCenter: parent.verticalCenter
++                            clip: true
++                            onTextEdited: root.query = text
++                            font { family: Appearance.fontFamily; pixelSize: root.labelSize + 1 }
++                            color: Qt.rgba(1, 1, 1, 0.95)
++                            selectionColor: Qt.rgba(0.04, 0.42, 1, 0.6)
++                            selectByMouse: true
++                            Keys.onReturnPressed: root.launchTopHit()
++                            Keys.onEnterPressed: root.launchTopHit()
++                            Keys.onEscapePressed: {
++                                if (root.query !== "") root.query = "";
++                                else ShellController.toggle("launcher");
++                                panelItem.forceActiveFocus();
++                            }
++
++                            Text {
++                                anchors.fill: parent
++                                verticalAlignment: Text.AlignVCenter
++                                text: "Search"
++                                visible: root.query === ""
++                                font: searchInput.font
++                                color: Qt.rgba(1, 1, 1, 0.38)
++                            }
++                        }
++
++                        Text {
++                            id: clearBtn
++                            anchors.right: parent.right
++                            anchors.rightMargin: 12
++                            anchors.verticalCenter: parent.verticalCenter
++                            text: "\u2715"
++                            visible: root.query !== ""
++                            font { family: Appearance.fontFamily; pixelSize: 12 }
++                            color: Qt.rgba(1, 1, 1, 0.55)
++                            MouseArea {
++                                anchors.fill: parent
++                                anchors.margins: -6
++                                cursorShape: Qt.PointingHandCursor
++                                onClicked: { root.query = ""; searchInput.forceActiveFocus(); }
++                            }
++                        }
++                    }
++
+                     Rectangle {
+                         id: menuBtn
+                         Layout.preferredWidth: 34
+@@ -306,6 +473,8 @@ PanelWindow {
+ 
+                             delegate: Column {
+                                 property var sec: modelData
++                                id: secCol
++                                property int secIndex: index
+                                 width: parent ? parent.width : 0
+                                 topPadding: 14
+                                 bottomPadding: 6
+@@ -328,7 +497,13 @@ PanelWindow {
+                                         model: sec.apps
+ 
+                                         delegate: Item {
++                                            id: cell
+                                             required property var modelData
++                                            required property int index
++                                            // row-staggered entrance: 40ms per row (capped), 260ms each
++                                            readonly property int rowDelay: Math.min(8, Math.floor(index / root.gridCols) + secCol.secIndex) * 40
++                                            readonly property real t: Math.max(0, Math.min(1, (root.cascade * root.cascadeMs - rowDelay) / 260))
++                                            readonly property real te: 1 - Math.pow(1 - t, 3)
+                                             width: root.cellW
+                                             height: root.iconSize + root.labelSize + 24
+ 
+@@ -336,12 +511,17 @@ PanelWindow {
+                                                 anchors.fill: parent
+                                                 anchors.margins: 4
+                                                 radius: 18
+-                                                color: appMa.containsMouse ? Qt.rgba(1, 1, 1, 0.10) : "transparent"
++                                                readonly property bool topHit: root.query.trim() !== "" && secCol.secIndex === 0 && cell.index === 0
++                                                color: appMa.containsMouse ? Qt.rgba(1, 1, 1, 0.10)
++                                                     : topHit ? Qt.rgba(0.04, 0.42, 1, 0.35) : "transparent"
+                                             }
+ 
+                                             Column {
+                                                 anchors.centerIn: parent
+                                                 spacing: 8
++                                                opacity: cell.te
++                                                scale: 0.9 + 0.1 * cell.te
++                                                transform: Translate { y: (1 - cell.te) * 18 }
+ 
+                                                 IconImage {
+                                                     anchors.horizontalCenter: parent.horizontalCenter
+diff --git a/macos/modules/lock/LockScreen.qml b/macos/modules/lock/LockScreen.qml
+index 3a7c6e4..6b3152b 100644
+--- a/macos/modules/lock/LockScreen.qml
++++ b/macos/modules/lock/LockScreen.qml
+@@ -9,7 +9,7 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         bottom: true
+diff --git a/macos/modules/notification/NotificationPopup.qml b/macos/modules/notification/NotificationPopup.qml
+index 2d48860..e2c0eab 100644
+--- a/macos/modules/notification/NotificationPopup.qml
++++ b/macos/modules/notification/NotificationPopup.qml
+@@ -9,7 +9,7 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         right: true
+diff --git a/macos/modules/session/ConfirmDialog.qml b/macos/modules/session/ConfirmDialog.qml
+index 2125ccb..5680a14 100644
+--- a/macos/modules/session/ConfirmDialog.qml
++++ b/macos/modules/session/ConfirmDialog.qml
+@@ -8,7 +8,7 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         bottom: true
+diff --git a/macos/modules/session/ForceQuit.qml b/macos/modules/session/ForceQuit.qml
+index c24b7b2..01ca023 100644
+--- a/macos/modules/session/ForceQuit.qml
++++ b/macos/modules/session/ForceQuit.qml
+@@ -9,7 +9,7 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         bottom: true
+@@ -30,7 +30,7 @@ PanelWindow {
+     readonly property var runningIds: {
+         const ids = [];
+         const seen = {};
+-        const tops = ToplevelManager.toplevels?.values ?? [];
++        const tops = KdeToplevels.toplevels?.values ?? [];
+         for (const t of tops) {
+             if (!t || !t.appId || seen[t.appId]) continue;
+             seen[t.appId] = true;
+diff --git a/macos/modules/session/Session.qml b/macos/modules/session/Session.qml
+index d959686..b2f066e 100644
+--- a/macos/modules/session/Session.qml
++++ b/macos/modules/session/Session.qml
+@@ -8,7 +8,7 @@ import "../common"
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         bottom: true
+diff --git a/macos/modules/topbar/TopBar.qml b/macos/modules/topbar/TopBar.qml
+index 891bbab..17d92ee 100644
+--- a/macos/modules/topbar/TopBar.qml
++++ b/macos/modules/topbar/TopBar.qml
+@@ -14,7 +14,7 @@ import "./eqsh" as Eq
+ PanelWindow {
+     id: root
+ 
+-    screen: Quickshell.screens[0]
++    screen: KdeToplevels.primaryScreen
+     anchors {
+         top: true
+         left: true
+@@ -45,7 +45,7 @@ PanelWindow {
+     readonly property color barSel: "#315bdc"
+ 
+     readonly property string activeAppId: {
+-        const id = ToplevelManager.activeToplevel?.appId ?? "";
++        const id = KdeToplevels.activeToplevel?.appId ?? "";
+         if (!id) return "finder";
+         return id.toLowerCase();
+     }
+@@ -171,7 +171,7 @@ PanelWindow {
+ 
+     function sendCombo(mods, key) {
+         root.closeAllMenus();
+-        const tl = ToplevelManager.activeToplevel;
++        const tl = KdeToplevels.activeToplevel;
+         if (tl && typeof tl.activate === "function") tl.activate();
+         let cmd = "sleep 0.08; wtype";
+         for (const m of mods) cmd += " -M " + m;
+@@ -186,10 +186,10 @@ PanelWindow {
+     }
+ 
+     function menuItems(name) {
+-        const aid = ToplevelManager.activeToplevel?.appId ?? "";
++        const aid = KdeToplevels.activeToplevel?.appId ?? "";
+         const al = aid.toLowerCase();
+         const appName = root.activeAppName;
+-        const tl = ToplevelManager.activeToplevel;
++        const tl = KdeToplevels.activeToplevel;
+ 
+         // Detect app type
+         const isFinder = al.includes("finder");
+@@ -491,7 +491,7 @@ PanelWindow {
+             items.push({ sep: true });
+             items.push({ label: "Cycle Through Windows", sub: "\u2318`", onClick: () => root.sendCombo(["logo"], "grave") });
+             items.push({ sep: true });
+-            const tops = ToplevelManager.toplevels?.values ?? [];
++            const tops = KdeToplevels.toplevels?.values ?? [];
+             for (const t of tops) {
+                 const key = (t.title && t.title.length) ? t.title : (t.appId || "Window");
+                 items.push({ label: key, onClick: () => { if (typeof t.activate === "function") t.activate(); } });
+@@ -1381,7 +1381,7 @@ PanelWindow {
+     // ---- Notification Center (clock) ----
+     PopupWindow {
+         id: notificationCenter
+-        parentWindow: root; screen: Quickshell.screens[0]
++        parentWindow: root; screen: KdeToplevels.primaryScreen
+         relativeX: root.width - 390
+         relativeY: Appearance.barHeight + 8
+         implicitWidth: 380
+@@ -1578,7 +1578,9 @@ PanelWindow {
+ 
+     PopupWindow {
+         id: wifiPopup
+-        parentWindow: root; screen: Quickshell.screens[0]
++        BackgroundEffect.blurRegion: KdeToplevels.isKde ? wifiPopupGlassRegion : null
++        Region { id: wifiPopupGlassRegion; item: wifiPopup.contentItem; radius: 12 }
++        parentWindow: root; screen: KdeToplevels.primaryScreen
+         implicitWidth: 280; implicitHeight: 340; visible: root.wifiOpen; color: "transparent"
+         Rectangle {
+             anchors.fill: parent; radius: 12
+@@ -1698,7 +1700,9 @@ PanelWindow {
+     // ---- Battery popup ----
+     PopupWindow {
+         id: batteryPopup
+-        parentWindow: root; screen: Quickshell.screens[0]
++        BackgroundEffect.blurRegion: KdeToplevels.isKde ? batteryPopupGlassRegion : null
++        Region { id: batteryPopupGlassRegion; item: batteryPopup.contentItem; radius: 12 }
++        parentWindow: root; screen: KdeToplevels.primaryScreen
+         implicitWidth: 280; implicitHeight: 360; visible: root.batteryOpen; color: "transparent"
+         property real pct: Battery.percentage
+         property bool charging: Battery.isCharging
+@@ -1814,7 +1818,9 @@ PanelWindow {
+     // ---- Apple menu (real macOS: only 3 items) ----
+     PopupWindow {
+         id: appleMenu
+-        parentWindow: root; screen: Quickshell.screens[0]
++        BackgroundEffect.blurRegion: KdeToplevels.isKde ? appleMenuGlassRegion : null
++        Region { id: appleMenuGlassRegion; item: appleMenu.contentItem; radius: 12 }
++        parentWindow: root; screen: KdeToplevels.primaryScreen
+         relativeX: 2; relativeY: Appearance.barHeight + 8
+         implicitWidth: 232; implicitHeight: 370; visible: root.appleOpen; color: "transparent"
+         Rectangle {
+@@ -1875,7 +1881,9 @@ PanelWindow {
+     // ---- Generic menubar dropdowns (File/Edit/View/Go/Window/Help) ----
+     PopupWindow {
+         id: menuPopup
+-        parentWindow: root; screen: Quickshell.screens[0]
++        BackgroundEffect.blurRegion: KdeToplevels.isKde ? menuPopupGlassRegion : null
++        Region { id: menuPopupGlassRegion; item: menuPopup.contentItem; radius: 12 }
++        parentWindow: root; screen: KdeToplevels.primaryScreen
+         implicitWidth: 280; visible: root.openMenu !== ""; color: "transparent"
+         implicitHeight: Math.min(600, (root.menuItems(root.openMenu).length * 29) + 24)
+         Rectangle {
+diff --git a/macos/services/DockApps.qml b/macos/services/DockApps.qml
+index 0b9090b..08ac407 100644
+--- a/macos/services/DockApps.qml
++++ b/macos/services/DockApps.qml
+@@ -15,26 +15,19 @@ Singleton {
+     readonly property string iconScript: Qt.resolvedUrl("../scripts/dock_icon.sh").toString().replace(/^file:\/\//, "")
+     readonly property string killScript: Qt.resolvedUrl("../scripts/kill_app.sh").toString().replace(/^file:\/\//, "")
+ 
++    // KDE port: the author's pins (Nautilus, Wine Adobe apps, ...) mapped to apps on this system
+     property var pinned: [
+-        { name: "Finder", icon: "Finder.png", desktop: "org.gnome.Nautilus", exec: "nautilus", appIds: ["org.gnome.Nautilus", "nautilus"] },
++        { name: "Finder", icon: "Finder.png", desktop: "org.kde.dolphin", exec: "dolphin", appIds: ["org.kde.dolphin", "dolphin"] },
+         { name: "Launchpad", icon: "Apps.png", desktop: "macos-launcher", exec: "qs ipc -p " + Quickshell.env("HOME") + "/.config/quickshell/macos call launchpad toggle", appIds: ["macos-launcher", "Launcher"] },
+-                { name: "Safari", icon: "Safari.png", desktop: "org.gnome.Pafari", exec: "pafari", appIds: ["org.gnome.Pafari", "pafari"] },
+-        { name: "Telegram", icon: "Telegram.png", desktop: "org.telegram.desktop", exec: "telegram-desktop", appIds: ["org.telegram.desktop", "telegram-desktop"] },
++        { name: "Safari", icon: "Safari.png", desktop: "org.mozilla.firefox", exec: "firefox", appIds: ["org.mozilla.firefox", "firefox"] },
++        { name: "Music", icon: "spotify-client.png", desktop: "spotify", exec: "spotify", appIds: ["spotify", "Spotify"] },
++        { name: "Discord", icon: "discord.png", desktop: "discord", exec: "discord", appIds: ["discord", "com.discordapp.Discord"] },
+         { name: "Steam", icon: "Steam.png", desktop: "steam", exec: "steam", appIds: ["steam", "com.valvesoftware.Steam"] },
+         { name: "Photos", icon: "Photos.png", desktop: "org.kde.gwenview", exec: "gwenview", appIds: ["org.kde.gwenview", "gwenview"] },
+-        { name: "iMessage", icon: "im-message.png", desktop: "com.github.eneshecan.Whatsie", exec: "whatsie", appIds: ["com.github.eneshecan.Whatsie", "whatsie"] },
+-        { name: "Calendar", icon: "Calendar.png", desktop: "org.gnome.Calendar", exec: "gnome-calendar", appIds: ["org.gnome.Calendar"] },
+-        { name: "Prism Launcher", icon: "Prism Launcher.png", desktop: "org.prismlauncher.PrismLauncher", exec: "prismlauncher", appIds: ["org.prismlauncher.PrismLauncher", "prismlauncher"] },
+-        { name: "Paragon", icon: "Pargon.png", desktop: "paragon-launcher", exec: "bash " + Quickshell.env("HOME") + "/.local/share/applications/paragon-launch.sh", appIds: ["paragon-launcher", "paragon_launcher"] },
+-        { name: "Adobe Premiere Pro 2026", icon: "paragon.png", desktop: "adobe-premiere-pro", exec: "env __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia WINEDEBUG=-all WINE_LARGE_ADDRESS_AWARE=1 prime-run wine \"" + Quickshell.env("HOME") + "/PortProton/prefixes/DEFAULT/drive_c/Program Files/Adobe/Adobe Premiere Pro 2026/Adobe Premiere Pro.exe\"", appIds: ["adobe-premiere-pro"] },
+-        { name: "After Effects", icon: "After Effects.png", desktop: "After Effects", exec: "env \"" + Quickshell.env("HOME") + "/PortProton/data/scripts/start.sh\" \"" + Quickshell.env("HOME") + "/Adobe After Effects 2022/Support Files/AfterFX.exe\"", appIds: ["afterfx.exe", "wine", "portproton"] },
+-        { name: "Zen Browser", icon: "zen-browser.png", desktop: "io.github.zen_browser.zen", exec: "zen-browser", appIds: ["io.github.zen_browser.zen", "zen", "zen-alpha"] },
+-{ name: "Vesktop", icon: "discord.png", desktop: "dev.vencord.Vesktop", exec: "vesktop --enable-features=UseOzonePlatform,WebRTCPipeWireCapturer --ozone-platform=wayland --disable-features=WebRtcAllowUnifiedPlanSeamlessUpgrade,GpuRasterization --disable-gpu-memory-buffer-video-frames --disable-gpu-compositing", appIds: ["dev.vencord.Vesktop", "vesktop"] },
+-        { name: "Sung", icon: "spotify-client.png", desktop: "sung", exec: "~/.local/bin/sung", appIds: ["sung"] },
+-        { name: "VS Code", icon: "code.png", desktop: "code-oss", exec: "code", appIds: ["code-oss", "code", "com.visualstudio.code"] },
+-        { name: "Terminal", icon: "Terminal.png", desktop: "kitty", exec: "kitty", appIds: ["kitty"] },
+-        { name: "App Store", icon: "App Store.png", desktop: "pearos-appstore", exec: "pearos-appstore", appIds: ["pearos-appstore"] },
+-        { name: "System Settings", icon: "System Settings.png", desktop: "systemsettings", exec: "systemsettings", appIds: ["systemsettings", "macos-settings", "pearos-settings", "pearos-settings-app"] },
++        { name: "Preview", icon: "Preview.png", desktop: "org.kde.okular", exec: "okular", appIds: ["org.kde.okular", "okular"] },
++        { name: "Calculator", icon: "Calculator.png", desktop: "org.kde.kcalc", exec: "kcalc", appIds: ["org.kde.kcalc", "kcalc"] },
++        { name: "Terminal", icon: "Terminal.png", desktop: "org.kde.konsole", exec: "konsole", appIds: ["org.kde.konsole", "konsole"] },
++        { name: "System Settings", icon: "System Settings.png", desktop: "systemsettings", exec: "systemsettings", appIds: ["systemsettings", "org.kde.systemsettings"] },
+     ]
+ 
+     property bool trashEmpty: true
+@@ -128,7 +121,7 @@ Singleton {
+             _restoreProc.running = true;
+             return; // restore brings it back and focuses it
+         }
+-        for (const t of ToplevelManager.toplevels.values) {
++        for (const t of KdeToplevels.toplevels.values) {
+             if (ids.includes(t.appId)) {
+                 if (typeof t.activate === "function") t.activate();
+                 return;
+@@ -310,7 +303,7 @@ Singleton {
+ 
+     function allRunningIds() {
+         const ids = [];
+-        for (const t of ToplevelManager.toplevels.values) {
++        for (const t of KdeToplevels.toplevels.values) {
+             const id = root._normalizeId(t);
+             if (id && !ids.includes(id)) ids.push(id);
+         }
+@@ -342,7 +335,7 @@ Singleton {
+     }
+ 
+     function quitApp(appIds) {
+-        for (const t of ToplevelManager.toplevels.values) {
++        for (const t of KdeToplevels.toplevels.values) {
+             if (appIds.includes(t.appId)) {
+                 if (typeof t.close === "function") t.close();
+             }
+@@ -442,7 +435,7 @@ Singleton {
+ 
+     function refresh() {
+         const ids = [];
+-        for (const t of ToplevelManager.toplevels.values) {
++        for (const t of KdeToplevels.toplevels.values) {
+             const id = root._normalizeId(t);
+             if (id && !ids.includes(id)) ids.push(id);
+         }
+diff --git a/macos/services/GlobalFocusGrab.qml b/macos/services/GlobalFocusGrab.qml
+index 6385d3d..d1cb5fe 100644
+--- a/macos/services/GlobalFocusGrab.qml
++++ b/macos/services/GlobalFocusGrab.qml
+@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
+ import QtQuick
+ import Quickshell
+ import Quickshell.Hyprland
++import Quickshell.Wayland
+ 
+ /**
+  * Manages a HyprlandFocusGrab that's to be shared by all windows.
+@@ -60,10 +61,34 @@ Singleton {
+         );
+     }
+ 
++    // KDE: no hyprland_focus_grab protocol. A transparent full-screen catcher on the Top
++    // layer closes popups on an outside click (xdg popups stack above it in KWin).
++    // Only for PopupWindows — full-screen panels (force quit) handle their own dismissal.
++    readonly property bool _kdeCatch: KdeToplevels.isKde && root.dismissable.some(w => w && w.exclusionMode === undefined)
++
++    Variants {
++        model: KdeToplevels.isKde ? Quickshell.screens : []
++        PanelWindow {
++            required property var modelData
++            screen: modelData
++            visible: root._kdeCatch
++            color: "transparent"
++            anchors { top: true; bottom: true; left: true; right: true }
++            exclusionMode: ExclusionMode.Ignore
++            WlrLayershell.layer: WlrLayer.Top
++            WlrLayershell.namespace: "macos:focusgrab"
++            MouseArea {
++                anchors.fill: parent
++                acceptedButtons: Qt.AllButtons
++                onPressed: root.dismiss()
++            }
++        }
++    }
++
+     HyprlandFocusGrab {
+         id: grab
+         windows: root.dismissable.every(w => !w?.focusable) || root.dismissable.some(w => hasActive(w?.contentItem)) ? [...root.dismissable, ...root.persistent] : [...root.dismissable]
+-        active: root.dismissable.length > 0
++        active: !KdeToplevels.isKde && root.dismissable.length > 0
+         onCleared: () => {
+             root.dismiss();
+         }
+diff --git a/macos/services/KdeToplevels.qml b/macos/services/KdeToplevels.qml
+new file mode 120000
+index 0000000..854e94e
+--- /dev/null
++++ b/macos/services/KdeToplevels.qml
+@@ -0,0 +1 @@
++../../eqsh/services/KdeToplevels.qml
+\ No newline at end of file
+diff --git a/macos/services/Notifications.qml b/macos/services/Notifications.qml
+index 5c8832a..20551a0 100644
+--- a/macos/services/Notifications.qml
++++ b/macos/services/Notifications.qml
+@@ -221,7 +221,8 @@ Singleton {
+ 
+         const found = porPid || exact || partial
+         if (found) {
+-            Hyprland.dispatch('hl.dsp.focus({ window = "address:' + found.address + '" })')
++            if (KdeToplevels.isKde) KdeToplevels.send(found.address, "activate")
++            else Hyprland.dispatch('hl.dsp.focus({ window = "address:' + found.address + '" })')
+             if (n && !n.resident) n.dismiss()
+             return
+         }
+@@ -279,11 +280,17 @@ Singleton {
+     }
+ 
+     Connections {
+-        target: Hyprland
++        target: KdeToplevels.isKde ? null : Hyprland
+         function onActiveToplevelChanged() {
+             root.descartarDeVentana(Hyprland.activeToplevel)
+         }
+     }
++    Connections {
++        target: KdeToplevels.isKde ? KdeToplevels : null
++        function onActiveToplevelChanged() {
++            root.descartarDeVentana(KdeToplevels.activeToplevel)
++        }
++    }
+ 
+     Process {
+         id: clientQuery
+diff --git a/macos/services/ShellController.qml b/macos/services/ShellController.qml
+index 45e24b0..2783ca0 100644
+--- a/macos/services/ShellController.qml
++++ b/macos/services/ShellController.qml
+@@ -21,8 +21,8 @@ Singleton {
+ 
+     signal openRequested(string name)
+ 
+-    Component.onCompleted: root.run("hyprctl eval 'hl.config({plugin={hyprbars={enabled=true}}})'")
+-    Component.onDestruction: root.run("hyprctl eval 'hl.config({plugin={hyprbars={enabled=false}}})'")
++    Component.onCompleted: if (!KdeToplevels.isKde) root.run("hyprctl eval 'hl.config({plugin={hyprbars={enabled=true}}})'")
++    Component.onDestruction: if (!KdeToplevels.isKde) root.run("hyprctl eval 'hl.config({plugin={hyprbars={enabled=false}}})'")
+ 
+     function isOpen(name) {
+         if (name === "spotlight") return root.spotlightOpen;
+@@ -83,6 +83,8 @@ Singleton {
+ 
+     function lock() {
+         root.closeAll();
++        // KWin keeps ext-session-lock for itself: hand off to KDE's screen locker
++        if (KdeToplevels.isKde) { root.run("loginctl lock-session"); return; }
+         root.locked = true;
+         root.openRequested("lock");
+     }
+@@ -112,6 +114,10 @@ Singleton {
+     function action(name) {
+         if (name === "lock") { root.lock(); return; }
+         if (name === "unlock") { root.unlock(); return; }
++        if (name === "logout" && KdeToplevels.isKde) {
++            root.run("gdbus call --session --dest org.kde.Shutdown --object-path /Shutdown --method org.kde.Shutdown.logout");
++            return;
++        }
+         if (name === "logout") {
+             // hyprctl dispatch exit is unavailable on this lua build; end the
+             // graphical logind session of the current user instead.
+@@ -132,7 +138,7 @@ Singleton {
+         if (cmd === "unlock") { root.unlock(); return; }
+         if (cmd === "forcequit") { root.openForceQuit(); return; }
+         if (cmd === "minimizeActive") {
+-            const tl = ToplevelManager.activeToplevel;
++            const tl = KdeToplevels.activeToplevel;
+             console.log("[minimizeActive] tl:", tl, tl ? tl.title : "none");
+             if (tl) tl.minimized = true;
+             return;
+@@ -161,10 +167,12 @@ Singleton {
+             onStreamFinished: {
+                 _cmdProc.running = false;
+                 const cmd = text.trim();
+-                if (cmd && cmd !== root.lastCmd) { root.lastCmd = cmd; root.handleCommand(cmd); }
++                if (cmd && cmd !== root.lastCmd) { root.lastCmd = cmd; root.handleCommand(cmd); _lastCmdReset.restart(); }
+             }
+         }
+     }
+ 
+     property string lastCmd: ""
++    // the dedupe only guards against a stale file looping; let the same shortcut toggle twice
++    Timer { id: _lastCmdReset; interval: 400; onTriggered: root.lastCmd = "" }
+ }
+diff --git a/macos/shell.qml b/macos/shell.qml
+index deaeb2c..dbd0407 100644
+--- a/macos/shell.qml
++++ b/macos/shell.qml
+@@ -34,7 +34,7 @@ ShellRoot {
+     // eqsh LockScreen (ext-session-lock) replaces the old PanelWindow lock
+     Loader {
+         id: lockLoader
+-        active: Config.lockScreen.enable
++        active: Config.lockScreen.enable && !KdeToplevels.isKde
+         sourceComponent: Lock {
+             id: lockScreen
+             onLock: ShellController.lock()

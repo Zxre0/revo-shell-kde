@@ -1,0 +1,19 @@
+{
+    "KPackageStructure": "KWin/Effect",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "revo-kde"
+            }
+        ],
+        "Category": "Window Open/Close Animation",
+        "Description": "revo-shell's Hyprland window animations: slide in from the nearest edge with overshoot, slide out with anticipation",
+        "EnabledByDefault": false,
+        "Id": "revo-motion",
+        "License": "GPL",
+        "Name": "Revo Motion"
+    },
+    "X-KDE-Ordering": 60,
+    "X-KWin-Exclusive-Category": "toplevel-open-close-animation",
+    "X-Plasma-API": "javascript"
+}
