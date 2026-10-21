@@ -39,14 +39,14 @@ function push() {
     callDBus("org.revo.KWinBridge", "/", "org.revo.KWinBridge", "update", JSON.stringify(state));
 }
 
-// Hyprland's active_opacity 0.92 / inactive_opacity 0.85, but opaque in fullscreen
-// (a KWin window rule can't make that exception)
+// focused and fullscreen windows opaque, the rest at Hyprland's inactive_opacity 0.85
+// (a KWin window rule can't make those exceptions)
 function applyOpacity(w) {
     // skip-taskbar windows are helpers (e.g. xwaylandvideobridge keeps itself invisible
     // through its own opacity) and the shell's layer surfaces
     if (!w || !w.normalWindow || w.skipTaskbar || /^(quickshell|qs)$/i.test(String(w.resourceClass)))
         return;
-    w.opacity = w.fullScreen ? 1.0 : (w === workspace.activeWindow ? 0.92 : 0.85);
+    w.opacity = (w.fullScreen || w === workspace.activeWindow) ? 1.0 : 0.85;
 }
 
 function applyOpacityAll() {

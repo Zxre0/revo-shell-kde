@@ -42,7 +42,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | Hyprland | KDE port |
 |---|---|
 | `hyprliquid` liquid glass on dock / eqsh popovers / launchpad | Quickshell `BackgroundEffect` blur regions + [Glass](https://github.com/4v3ngR/kwin-effects-glass) KWin effect (refraction, edge lighting, specular rim) |
-| `decoration.blur`, 92/85 % opacity, rounding 14, faint border | Glass force-blur, opacity set by the bridge's KWin script (opaque in fullscreen), [KDE-Rounded-Corners](https://github.com/matinlotfali/KDE-Rounded-Corners) |
+| `decoration.blur`, 92/85 % opacity, rounding 14, faint border | Glass force-blur, opacity set by the bridge's KWin script (focused and fullscreen windows opaque, others 85 %), [KDE-Rounded-Corners](https://github.com/matinlotfali/KDE-Rounded-Corners) |
 | `windowsIn/Out … slide` with `winIn`/`winOut` beziers | `kwin/revo-motion`: slide from the nearest edge, OutBack / InBack |
 | genie minimize (needs Hyprland screencopy) | KWin Magic Lamp |
 | `hyprbars` traffic lights | `aurorae/`: RevoTahoe decoration (red close, yellow minimize, green full screen, hover glyphs), matching GTK CSS for GTK apps, and a `userChrome.css` for Firefox / LibreWolf / Waterfox (installed by `bin/revo-firefox-theme`; restart the browser once) |

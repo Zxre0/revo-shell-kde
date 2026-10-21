@@ -181,7 +181,7 @@ grep -qs "revo-titlebuttons.css" "$CFG/gtk-4.0/gtk.css" || printf "\n@import 're
 # (restart the browser to see them)
 "$HERE/bin/revo-firefox-theme" install
 
-# window opacity (92% active / 85% inactive, opaque in fullscreen) is applied by the bridge's
+# window opacity (opaque when focused or fullscreen, 85% otherwise) is applied by the bridge's
 # KWin script; remove the fixed window rule older installs created
 RULE=revo-shell-opacity
 rules="$(kreadconfig6 --file kwinrulesrc --group General --key rules)"
