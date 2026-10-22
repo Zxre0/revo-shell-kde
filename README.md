@@ -50,6 +50,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `HyprlandFocusGrab` | transparent click-catcher layer |
 | ext-session-lock screen | KDE's screen locker |
 | Hyprland keybinds | KWin shortcuts registered by the bridge |
+| `kitty` terminal | Konsole styled as macOS Terminal (`konsole/`): Apple System Colors palette, SF Mono, no toolbars, Tahoe-style pill tabs that continue the title bar |
 
 ## Layout
 
@@ -63,6 +64,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `kwin/revo-motion/` | window open/close animation effect |
 | `aurorae/` | `generate.py` → RevoTahoe title bar theme + GTK title-button CSS |
 | `bin/revo-shell-kde` | launcher (bridge + Quickshell) |
+| `konsole/`, `bin/revo-konsole-theme` | macOS Terminal profile, colour scheme and tab style for Konsole |
 | `bin/revo-firefox-theme` | add / remove the traffic-light `userChrome.css` in Firefox-family profiles |
 
 ## Credits and licensing

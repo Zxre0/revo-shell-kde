@@ -1093,7 +1093,7 @@ index 891bbab..17d92ee 100644
          implicitHeight: Math.min(600, (root.menuItems(root.openMenu).length * 29) + 24)
          Rectangle {
 diff --git a/macos/services/DockApps.qml b/macos/services/DockApps.qml
-index 0b9090b..08ac407 100644
+index 0b9090b..6a648d6 100644
 --- a/macos/services/DockApps.qml
 +++ b/macos/services/DockApps.qml
 @@ -15,26 +15,19 @@ Singleton {
@@ -1127,7 +1127,7 @@ index 0b9090b..08ac407 100644
 -        { name: "System Settings", icon: "System Settings.png", desktop: "systemsettings", exec: "systemsettings", appIds: ["systemsettings", "macos-settings", "pearos-settings", "pearos-settings-app"] },
 +        { name: "Preview", icon: "Preview.png", desktop: "org.kde.okular", exec: "okular", appIds: ["org.kde.okular", "okular"] },
 +        { name: "Calculator", icon: "Calculator.png", desktop: "org.kde.kcalc", exec: "kcalc", appIds: ["org.kde.kcalc", "kcalc"] },
-+        { name: "Terminal", icon: "Terminal.png", desktop: "org.kde.konsole", exec: "konsole", appIds: ["org.kde.konsole", "konsole"] },
++        { name: "Terminal", icon: "Terminal.png", desktop: "org.kde.konsole", exec: "konsole --hide-toolbars", appIds: ["org.kde.konsole", "konsole"] },
 +        { name: "System Settings", icon: "System Settings.png", desktop: "systemsettings", exec: "systemsettings", appIds: ["systemsettings", "org.kde.systemsettings"] },
      ]
  

@@ -29,7 +29,7 @@ grep -q "shapecorners" <<<"$EFFECTS" || warn "Rounded-corners effect not found �
 # ── backup ───────────────────────────────────────────────────────────────────
 say "Backing up current Plasma/KWin config → $BACKUP"
 mkdir -p "$BACKUP"
-for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc; do
+for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc konsolerc; do
     [[ -f "$CFG/$f" ]] && cp -a "$CFG/$f" "$BACKUP/"
 done
 for s in eqsh macos; do
@@ -180,6 +180,8 @@ grep -qs "revo-titlebuttons.css" "$CFG/gtk-4.0/gtk.css" || printf "\n@import 're
 # Firefox / LibreWolf / Waterfox draw their own buttons: userChrome.css in every profile
 # (restart the browser to see them)
 "$HERE/bin/revo-firefox-theme" install
+# Konsole as macOS Terminal: Apple System Colors, SF Mono, no toolbars, pill tabs
+"$HERE/bin/revo-konsole-theme" install
 
 # window opacity (opaque when focused or fullscreen, 85% otherwise) is applied by the bridge's
 # KWin script; remove the fixed window rule older installs created

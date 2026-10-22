@@ -1,0 +1,16 @@
+/* revo-shell-kde: macOS Tahoe-style Konsole tabs. They continue the RevoTahoe title bar
+   (#272c31), and the selected tab is a light pill. @DIR@ is replaced at install time,
+   because Qt resolves url() against the working directory. */
+QTabBar { background: #272c31; border: none; qproperty-drawBase: 0; }
+QTabBar::tab {
+    background: transparent; color: rgba(255, 255, 255, 0.55);
+    font-family: "SF Pro Display"; font-size: 12px;
+    min-height: 22px; margin: 2px 2px 6px 2px; padding: 0 24px;
+    border: none; border-radius: 7px;
+}
+QTabBar::tab:first { margin-left: 8px; }
+QTabBar::tab:last { margin-right: 8px; }
+QTabBar::tab:hover { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.8); }
+QTabBar::tab:selected { background: rgba(255, 255, 255, 0.13); color: #ffffff; }
+QTabBar::close-button { image: url(@DIR@/tab-close.svg); subcontrol-position: left; margin-left: 6px; }
+QTabBar::close-button:hover { image: url(@DIR@/tab-close-hover.svg); }

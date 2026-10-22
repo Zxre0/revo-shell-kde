@@ -26,7 +26,8 @@ sleep 0.5
 $KS.unloadScript revo-opacity-reset >/dev/null 2>&1 || true
 rm -f "$reset_js"
 
-for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc; do
+"$HERE/bin/revo-konsole-theme" remove || true
+for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc konsolerc; do
     [[ -f "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "$CFG/$f"
 done
 rm -f "$HOME/.local/share/kwin/effects/revo-motion"

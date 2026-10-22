@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# macOS Terminal look for Konsole: the Apple System Colors palette, SF Mono, no toolbars,
+# and Tahoe-style pill tabs that continue the RevoTahoe title bar.
+#   revo-konsole-theme install   link the profile + colour scheme, make it the default, apply it
+#                                to open sessions, launch Konsole without toolbars
+#   revo-konsole-theme remove    undo that (install-user.sh backs up konsolerc; restore.sh puts it back)
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+SRC="$HERE/konsole"
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/konsolestaterc"
+DESKTOP="$DATA/applications/org.kde.konsole.desktop"
+KW="kwriteconfig6 --file konsolerc"
+
+# Konsole remembers toolbar visibility in its saved window state. Clear the "shown" flag of
+# both toolbars there; --hide-toolbars on every launcher covers windows that save it back.
+toolbars_state() {
+    [[ -f "$STATE" ]] || return 0
+    python3 - "$STATE" "$1" <<'EOF'
+import base64, re, sys
+path, shown = sys.argv[1], b"\x01" if sys.argv[2] == "show" else b"\x00"
+text = open(path).read()
+def patch(m):
+    blob = bytearray(base64.b64decode(m.group(2)))
+    for name in ("mainToolBar", "sessionToolbar"):
+        key = name.encode("utf-16-be")
+        i = blob.find(key)
+        if i >= 0:
+            blob[i + len(key)] = shown[0]
+    return m.group(1) + base64.b64encode(bytes(blob)).decode()
+open(path, "w").write(re.sub(r"^(State=)(.*)$", patch, text, flags=re.M))
+EOF
+}
+
+apply_live() {
+    local svc s
+    for svc in $(gdbus call --session --dest org.freedesktop.DBus --object-path / \
+            --method org.freedesktop.DBus.ListNames | grep -o "org.kde.konsole-[0-9]*"); do
+        for s in $(gdbus introspect --session --dest "$svc" --object-path /Sessions 2>/dev/null |
+                sed -n 's/^ *node \([0-9]*\) .*/\1/p'); do
+            gdbus call --session --dest "$svc" --object-path "/Sessions/$s" \
+                --method org.kde.konsole.Session.setProfile "$1" >/dev/null 2>&1 || true
+        done
+    done
+}
+
+case "${1:-}" in
+install)
+    mkdir -p "$DATA/konsole" "$DATA/applications"
+    ln -sfn "$SRC/RevoMac.profile" "$DATA/konsole/RevoMac.profile"
+    ln -sfn "$SRC/RevoMac.colorscheme" "$DATA/konsole/RevoMac.colorscheme"
+    # Qt resolves url() in style sheets against the working directory: bake in absolute paths
+    sed "s|@DIR@|$SRC|g" "$SRC/tabbar.qss.in" >"$DATA/konsole/revo-tabbar.qss"
+    $KW --group "Desktop Entry" --key DefaultProfile RevoMac.profile
+    $KW --group TabBar --key ExpandTabWidth true
+    # no corner buttons (new tab, search tabs): macOS tabs are just the pills
+    $KW --group TabBar --key NewTabButton false
+    $KW --group TabBar --key SearchTabsButton HideSearchTabsButton
+    $KW --group TabBar --key TabBarUseUserStyleSheet true
+    $KW --group TabBar --key TabBarUserStyleSheetFile "file://$DATA/konsole/revo-tabbar.qss"
+    $KW --group KonsoleWindow --key ShowMenuBarByDefault false
+    # launchers (Launchpad, Spotlight, KDE) read the desktop entry: same one, without toolbars
+    sed -E 's/^Exec=konsole( |$)/Exec=konsole --hide-toolbars\1/' \
+        /usr/share/applications/org.kde.konsole.desktop >"$DESKTOP"
+    echo "# revo-shell-kde: konsole --hide-toolbars" >>"$DESKTOP"
+    toolbars_state hide
+    apply_live macOS
+    ;;
+remove)
+    rm -f "$DATA/konsole/RevoMac.profile" "$DATA/konsole/RevoMac.colorscheme" "$DATA/konsole/revo-tabbar.qss"
+    grep -qs "revo-shell-kde" "$DESKTOP" && rm -f "$DESKTOP"
+    $KW --group TabBar --key TabBarUseUserStyleSheet false
+    [[ "$(kreadconfig6 --file konsolerc --group "Desktop Entry" --key DefaultProfile)" == RevoMac.profile ]] &&
+        $KW --group "Desktop Entry" --key DefaultProfile --delete
+    toolbars_state show
+    ;;
+*) echo "usage: $0 install|remove" >&2; exit 2 ;;
+esac
