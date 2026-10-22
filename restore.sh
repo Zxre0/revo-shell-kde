@@ -27,7 +27,8 @@ $KS.unloadScript revo-opacity-reset >/dev/null 2>&1 || true
 rm -f "$reset_js"
 
 "$HERE/bin/revo-konsole-theme" remove || true
-for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc konsolerc; do
+"$HERE/bin/revo-finder-theme" remove || true
+for f in kwinrc kwinrulesrc kdeglobals plasmashellrc plasma-org.kde.plasma.desktop-appletsrc konsolerc dolphinrc; do
     [[ -f "$BACKUP/$f" ]] && cp -a "$BACKUP/$f" "$CFG/$f"
 done
 rm -f "$HOME/.local/share/kwin/effects/revo-motion"

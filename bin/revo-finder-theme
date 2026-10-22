@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Finder look for Dolphin: macOS folders + Finder palette (Dolphin only), blue sidebar glyphs,
+# a Finder-like toolbar, no status bar, and a Finder-like Places sidebar.
+#   revo-finder-theme install
+#   revo-finder-theme remove
+# Artwork comes from finder/generate.py.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+SRC="$HERE/finder"
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+HICOLOR="$DATA/icons/hicolor/scalable/places"
+UIRC="$DATA/kxmlgui5/dolphin/dolphinui.rc"
+PLACES="$DATA/user-places.xbel"
+PLACES_SAVED="$DATA/revo-finder-places.json"   # the icons the bookmarks had before install
+KW="kwriteconfig6 --file dolphinrc"
+MARK="<!-- revo-shell-kde -->"
+
+# Places bookmarks ↔ sidebar glyphs, and the groups Finder has no equivalent for
+places() {
+    [[ -f "$PLACES" ]] || return 0
+    python3 - "$PLACES" "$1" "$PLACES_SAVED" "$HOME" \
+        "$(xdg-user-dir DESKTOP)" "$(xdg-user-dir DOCUMENTS)" "$(xdg-user-dir DOWNLOAD)" \
+        "$(xdg-user-dir MUSIC)" "$(xdg-user-dir PICTURES)" "$(xdg-user-dir VIDEOS)" <<'EOF'
+import json, os, re, sys
+from urllib.parse import quote
+path, mode, saved_path, home, desktop, docs, down, music, pics, vids = sys.argv[1:]
+icons = [  # href, stock icon, sidebar glyph
+    ("file://" + quote(home), "user-home", "home"),
+    ("file://" + quote(desktop), "user-desktop", "desktop"),
+    ("file://" + quote(docs), "folder-documents", "documents"),
+    ("file://" + quote(down), "folder-download", "downloads"),
+    ("file://" + quote(music), "folder-music", "music"),
+    ("file://" + quote(pics), "folder-pictures", "pictures"),
+    ("file://" + quote(vids), "folder-videos", "videos"),
+    ("trash:/", "user-trash", "trash"),
+    ("remote:/", "network-workgroup", "network"),
+]
+text = open(path).read()
+try:
+    saved = json.load(open(saved_path))
+except (OSError, ValueError):
+    saved = {}
+for href, stock, glyph in icons:
+    pat = r'(<bookmark href="%s">(?:(?!</bookmark>).)*?<bookmark:icon name=")([^"]*)(")' % re.escape(href)
+    m = re.search(pat, text, flags=re.S)
+    if not m:
+        continue
+    if mode == "install":
+        if not m.group(2).startswith("revo-finder-"):
+            saved[href] = m.group(2)
+        new = "revo-finder-" + glyph
+    else:
+        new = saved.get(href, stock)
+    text = text[:m.start(2)] + new + text[m.end(2):]
+if mode == "install":
+    json.dump(saved, open(saved_path, "w"), indent=1)
+elif os.path.exists(saved_path):
+    os.unlink(saved_path)
+hidden = "true" if mode == "install" else "false"
+for group in ("RecentlySaved", "SearchFor"):
+    text = re.sub(r"(<GroupState-%s-IsHidden>)\w+(</GroupState-%s-IsHidden>)" % (group, group),
+                  r"\g<1>%s\g<2>" % hidden, text)
+open(path, "w").write(text)
+EOF
+}
+
+# Finder toolbar: back/forward, the folder (breadcrumbs), then the view switcher, search, menu.
+# KXMLGUI only honours a local copy with the installed file's version, so take Dolphin's own
+# file for the installed release and swap the toolbar.
+toolbar() {
+    if [[ -f "$UIRC" ]] && ! grep -qF "$MARK" "$UIRC"; then
+        echo "  dolphin: keeping your own toolbar ($UIRC)"
+        return 0
+    fi
+    local ver tmp
+    ver="$(dolphin --version 2>/dev/null | awk '{print $2}')"
+    tmp="$(mktemp)"
+    if ! curl -sfL "https://invent.kde.org/system/dolphin/-/raw/v$ver/src/dolphinui.rc" -o "$tmp"; then
+        echo "  dolphin: couldn't fetch dolphinui.rc for $ver, toolbar left as is"
+        rm -f "$tmp"; return 0
+    fi
+    mkdir -p "$(dirname "$UIRC")"
+    python3 - "$tmp" "$UIRC" "$MARK" <<'EOF'
+import re, sys
+src, dst, mark = sys.argv[1:]
+text = open(src).read()
+bar = """<ToolBar noMerge="1" name="mainToolBar" >
+        <text context="@title:menu">Main Toolbar</text>
+        <Action name="go_back" />
+        <Action name="go_forward" />
+        <Action name="url_navigators" />
+        <Action name="icons" />
+        <Action name="compact" />
+        <Action name="details" />
+        <Action name="toggle_search" />
+        <Action name="hamburger_menu" />
+    </ToolBar>"""
+text = re.sub(r'<ToolBar noMerge="1" name="mainToolBar"\s*>.*?</ToolBar>', bar, text, count=1, flags=re.S)
+text = text.replace("<gui ", mark + "\n<gui ", 1)
+open(dst, "w").write(text)
+EOF
+    rm -f "$tmp"
+}
+
+case "${1:-}" in
+install)
+    mkdir -p "$DATA/icons" "$HICOLOR" "$DATA/color-schemes"
+    ln -sfn "$SRC/RevoFinder" "$DATA/icons/RevoFinder"
+    for f in "$SRC"/sidebar/*.svg; do ln -sfn "$f" "$HICOLOR/$(basename "$f")"; done
+    ln -sfn "$SRC/RevoFinder.colors" "$DATA/color-schemes/RevoFinder.colors"
+    # Dolphin-only icon theme and palette (app config overrides kdeglobals)
+    $KW --group Icons --key Theme RevoFinder
+    $KW --group UiSettings --key ColorScheme RevoFinder
+    $KW --group General --key ShowStatusBar Disabled
+    $KW --group PlacesPanel --key IconSize 16
+    $KW --group MainWindow --key MenuBar Disabled
+    toolbar
+    places install
+    ;;
+remove)
+    $KW --group Icons --key Theme --delete
+    $KW --group UiSettings --key ColorScheme --delete
+    $KW --group General --key ShowStatusBar --delete
+    $KW --group PlacesPanel --key IconSize --delete
+    grep -qsF "$MARK" "$UIRC" && rm -f "$UIRC"
+    places remove
+    rm -f "$DATA/icons/RevoFinder" "$DATA/color-schemes/RevoFinder.colors" "$HICOLOR"/revo-finder-*.svg
+    ;;
+*) echo "usage: $0 install|remove" >&2; exit 2 ;;
+esac

@@ -50,6 +50,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `HyprlandFocusGrab` | transparent click-catcher layer |
 | ext-session-lock screen | KDE's screen locker |
 | Hyprland keybinds | KWin shortcuts registered by the bridge |
+| Finder (patched Nautilus in upstream) | Dolphin styled as Finder (`finder/`): original macOS-style folder icons and Finder palette for Dolphin only, blue sidebar glyphs, Finder toolbar (back/forward, path, view switcher, search), no status bar |
 | `kitty` terminal | Konsole styled as macOS Terminal (`konsole/`): Apple System Colors palette, SF Mono, no toolbars, Tahoe-style pill tabs with a "+" button that continue the title bar |
 
 ## Layout
@@ -65,6 +66,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `aurorae/` | `generate.py` → RevoTahoe title bar theme + GTK title-button CSS |
 | `bin/revo-shell-kde` | launcher (bridge + Quickshell) |
 | `konsole/`, `bin/revo-konsole-theme` | macOS Terminal profile, colour scheme and tab style for Konsole |
+| `finder/`, `bin/revo-finder-theme` | `generate.py` → RevoFinder icon theme, sidebar glyphs, Finder colour scheme; installer for Dolphin |
 | `bin/revo-firefox-theme` | add / remove the traffic-light `userChrome.css` in Firefox-family profiles |
 
 ## Credits and licensing

@@ -1,0 +1,26 @@
+[Icon Theme]
+Name=Revo Finder
+Comment=macOS Finder-style folders for Dolphin (revo-shell-kde)
+Inherits=breeze-dark,hicolor
+Directories=places/scalable,devices/scalable,emblems/scalable
+
+[places/scalable]
+Size=64
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Places
+
+[devices/scalable]
+Size=24
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Devices
+
+[emblems/scalable]
+Size=16
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems
