@@ -50,7 +50,7 @@ You can rebind these under System Settings → Shortcuts → KWin ("revo-shell: 
 | `HyprlandFocusGrab` | transparent click-catcher layer |
 | ext-session-lock screen | KDE's screen locker |
 | Hyprland keybinds | KWin shortcuts registered by the bridge |
-| `kitty` terminal | Konsole styled as macOS Terminal (`konsole/`): Apple System Colors palette, SF Mono, no toolbars, Tahoe-style pill tabs that continue the title bar |
+| `kitty` terminal | Konsole styled as macOS Terminal (`konsole/`): Apple System Colors palette, SF Mono, no toolbars, Tahoe-style pill tabs with a "+" button that continue the title bar |
 
 ## Layout
 

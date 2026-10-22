@@ -54,8 +54,9 @@ install)
     sed "s|@DIR@|$SRC|g" "$SRC/tabbar.qss.in" >"$DATA/konsole/revo-tabbar.qss"
     $KW --group "Desktop Entry" --key DefaultProfile RevoMac.profile
     $KW --group TabBar --key ExpandTabWidth true
-    # no corner buttons (new tab, search tabs): macOS tabs are just the pills
-    $KW --group TabBar --key NewTabButton false
+    # tab bar always there with a "+" (styled by the QSS); no "search tabs" button
+    $KW --group TabBar --key TabBarVisibility AlwaysShowTabBar
+    $KW --group TabBar --key NewTabButton true
     $KW --group TabBar --key SearchTabsButton HideSearchTabsButton
     $KW --group TabBar --key TabBarUseUserStyleSheet true
     $KW --group TabBar --key TabBarUserStyleSheetFile "file://$DATA/konsole/revo-tabbar.qss"

@@ -14,3 +14,15 @@ QTabBar::tab:hover { background: rgba(255, 255, 255, 0.06); color: rgba(255, 255
 QTabBar::tab:selected { background: rgba(255, 255, 255, 0.13); color: #ffffff; }
 QTabBar::close-button { image: url(@DIR@/tab-close.svg); subcontrol-position: left; margin-left: 6px; }
 QTabBar::close-button:hover { image: url(@DIR@/tab-close-hover.svg); }
+/* new-tab corner button: a plain "+" like Safari / Terminal's tab bar. It fills the whole
+   corner (Konsole paints that area in the window colour) and highlights an inset square
+   through a border in the title bar colour. */
+QToolButton {
+    background-color: #272c31; background-clip: padding;
+    border: solid #272c31; border-width: 2px 6px 6px 8px; border-radius: 0;
+    margin: 0; padding: 0; min-width: 24px; min-height: 22px;
+    qproperty-icon: url(@DIR@/tab-new.svg); qproperty-iconSize: 16px;
+}
+QToolButton:hover { background-color: #34393e; }
+QToolButton:pressed { background-color: #41464b; }
+QToolButton::menu-indicator { image: none; width: 0; }
