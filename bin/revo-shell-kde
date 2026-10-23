@@ -16,4 +16,6 @@ done
 
 "$QS" kill -p "$SHELL_DIR" >/dev/null 2>&1 || true
 export PATH="$HERE/kde-bridge/shim:$PATH"
+# apps launched from the dock / Launchpad inherit the shell's working directory
+cd "$HOME"
 exec "$QS" -p "$SHELL_DIR" "$@"
